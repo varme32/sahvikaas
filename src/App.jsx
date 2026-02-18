@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AuthPage from './pages/AuthPage'
 import DashboardPage from './pages/DashboardPage'
 import RoomsPage from './pages/RoomsPage'
@@ -10,7 +10,7 @@ import { ToastProvider } from './components/ui/Toast'
 function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
+      <HashRouter>
         <Routes>
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/signup" element={<AuthPage mode="signup" />} />
@@ -27,7 +27,7 @@ function App() {
           <Route path="/room/:id" element={<StudyRoomPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </ToastProvider>
   )
 }
