@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Modal from '../components/ui/Modal'
+import Modal from '../../components/ui/Modal'
 
 const categories = ['All Rooms', 'Computer Science', 'Mathematics', 'Physics']
 
@@ -51,42 +51,44 @@ export default function RoomsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header Actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative">
           <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             placeholder="Search rooms..."
-            className="w-64 h-10 pl-10 pr-4 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full sm:w-64 h-10 pl-10 pr-4 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2 sm:gap-3">
           <button
             onClick={() => setJoinModalOpen(true)}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            className="flex-1 sm:flex-none px-3 sm:px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
           >
             <i className="ri-link mr-1" />
-            Join Room
+            <span className="hidden xs:inline">Join Room</span>
+            <span className="xs:hidden">Join</span>
           </button>
           <button
             onClick={() => navigate('/create-room')}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
           >
             <i className="ri-add-line mr-1" />
-            Create Room
+            <span className="hidden xs:inline">Create Room</span>
+            <span className="xs:hidden">Create</span>
           </button>
         </div>
       </div>
 
       {/* Category Filters */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 study-feature-tabs">
         {categories.map(cat => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
               activeCategory === cat
                 ? 'bg-indigo-600 text-white'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -98,9 +100,9 @@ export default function RoomsPage() {
       </div>
 
       {/* Active Rooms Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
         {filteredRooms.map(room => (
-          <div key={room.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
+          <div key={room.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 sm:p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h3 className="font-semibold text-gray-900">{room.name}</h3>
@@ -135,9 +137,9 @@ export default function RoomsPage() {
       {/* Upcoming Sessions */}
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Study Sessions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
           {upcomingRooms.map(room => (
-            <div key={room.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
+            <div key={room.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 sm:p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h3 className="font-semibold text-gray-900">{room.name}</h3>

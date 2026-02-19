@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Modal from '../ui/Modal'
+import Modal from '../../../components/ui/Modal'
 
 export default function TasksPanel() {
   const [tasks, setTasks] = useState([])

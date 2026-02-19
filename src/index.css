@@ -2,9 +2,35 @@
 @import "tailwindcss";
 
 @layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     font-family: 'Inter', sans-serif;
     @apply bg-gray-50 text-gray-900 antialiased m-0;
+    overflow-x: hidden;
+  }
+
+  /* Prevent horizontal overflow on small screens */
+  #root {
+    overflow-x: hidden;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* Better touch targets for mobile */
+  @media (max-width: 767px) {
+    button, a, input, select, textarea {
+      min-height: 36px;
+    }
   }
 }
 
@@ -627,5 +653,89 @@
   }
   .xs\:inline {
     display: inline !important;
+  }
+  .xs\:hidden {
+    display: none !important;
+  }
+}
+
+/* ===== Safe Area for notched devices ===== */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .study-mobile-tabbar {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ===== Print styles ===== */
+@media print {
+  .study-nav,
+  .study-mobile-tabbar,
+  .voice-assistant-container {
+    display: none !important;
+  }
+}
+
+/* ===== Landscape mobile adjustments ===== */
+@media (max-width: 767px) and (orientation: landscape) {
+  .video-grid {
+    height: 120px;
+    min-height: 100px;
+  }
+
+  .study-mobile-tabbar {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .study-mobile-tabbar button {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .voice-assistant-container {
+    bottom: 48px;
+    right: 8px;
+  }
+
+  .voice-assistant-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+}
+
+/* ===== Ultra-small devices (< 360px) ===== */
+@media (max-width: 359px) {
+  .study-nav-center h2 {
+    font-size: 0.625rem;
+  }
+
+  .study-nav-center p {
+    display: none;
+  }
+
+  .chat-message {
+    max-width: 95%;
+    font-size: 13px;
+  }
+
+  .ai-message-user {
+    max-width: 95%;
+    font-size: 13px;
+  }
+
+  .ai-message-content {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .ai-send-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ai-message-avatar {
+    width: 28px;
+    height: 28px;
   }
 }

@@ -40,9 +40,9 @@ export default function DashboardPage() {
   const navigate = useNavigate()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Top Cards Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
         {/* Active Study Rooms */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between p-4 border-b border-gray-100">
@@ -118,9 +118,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 lg:gap-6">
         {/* Study Progress */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-3 sm:p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900">Study Progress</h3>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
@@ -128,7 +128,7 @@ export default function DashboardPage() {
               <button className="px-3 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700">Month</button>
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={studyProgressData}>
               <defs>
                 <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
@@ -149,9 +149,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Subject Distribution */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-3 sm:p-4">
           <h3 className="font-semibold text-gray-900 mb-4">Subject Distribution</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={200}>
             <PieChart>
               <Pie
                 data={subjectData}

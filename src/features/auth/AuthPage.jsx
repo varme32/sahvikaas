@@ -44,11 +44,11 @@ export default function AuthPage({ mode }) {
       </div>
 
       {/* Right Form Panel */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-white">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-8 bg-white">
         <div className="w-full max-w-md">
           {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            <h1 className="logo-font text-3xl text-indigo-500">StudyHub</h1>
+          <div className="lg:hidden text-center mb-6 sm:mb-8">
+            <h1 className="logo-font text-2xl sm:text-3xl text-indigo-500">StudyHub</h1>
           </div>
 
           {isLogin ? (

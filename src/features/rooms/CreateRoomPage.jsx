@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Modal from '../components/ui/Modal'
+import Modal from '../../components/ui/Modal'
 
 export default function CreateRoomPage() {
   const navigate = useNavigate()
@@ -53,7 +53,7 @@ export default function CreateRoomPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-3 sm:px-4">
       <div className="max-w-4xl mx-auto">
         {/* Back Button */}
         <button
@@ -64,9 +64,9 @@ export default function CreateRoomPage() {
           <span className="text-sm font-medium">Back</span>
         </button>
 
-        <h1 className="text-2xl font-bold text-gray-900 text-center mb-8">Create a Study Room</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-6 sm:mb-8">Create a Study Room</h1>
 
-        <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg shadow-sm p-8">
+        <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-6 md:p-8">
           <div className="space-y-6">
             {/* Room Name */}
             <div>
@@ -95,7 +95,7 @@ export default function CreateRoomPage() {
             {/* Room Settings */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">Room Settings</label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 {/* Audio Toggle */}
                 <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
                   <div className="flex items-center gap-3">

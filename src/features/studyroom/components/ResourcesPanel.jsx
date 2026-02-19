@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import Modal from '../ui/Modal'
+import Modal from '../../../components/ui/Modal'
 
 export default function ResourcesPanel() {
   const [folders, setFolders] = useState([])
