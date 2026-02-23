@@ -30,7 +30,6 @@ dist-ssr
 !.env.*.example
 
 # Backend env files
-backend/
 backend/.env
 backend/.env.*
 
