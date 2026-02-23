@@ -578,7 +578,14 @@ io.on('connection', (socket) => {
     // Send FULL room state to the new joiner for session initialization
     const existingParticipants = []
     for (const [sid, p] of room.participants) {
-      if (sid !== socket.id) existingParticipants.push(p)
+      if (sid !== socket.id) {
+        existingParticipants.push({
+          socketId: p.socketId,
+          name: p.name,
+          audioOn: p.audioOn,
+          videoOn: p.videoOn,
+        })
+      }
     }
 
     socket.emit('existing-participants', existingParticipants)
@@ -622,11 +629,13 @@ io.on('connection', (socket) => {
 
   // ─── WEBRTC SIGNALING ───────────────────────
   socket.on('offer', ({ to, offer }) => {
+    console.log(`📡 Forwarding offer from ${socket.userName} (${socket.id}) to ${to}`)
     io.to(to).emit('offer', { from: socket.id, offer, userName: socket.userName })
   })
 
   socket.on('answer', ({ to, answer }) => {
-    io.to(to).emit('answer', { from: socket.id, answer })
+    console.log(`📡 Forwarding answer from ${socket.userName} (${socket.id}) to ${to}`)
+    io.to(to).emit('answer', { from: socket.id, answer, userName: socket.userName })
   })
 
   socket.on('ice-candidate', ({ to, candidate }) => {
