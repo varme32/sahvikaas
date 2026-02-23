@@ -89,13 +89,26 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         }
 
         activeMeetingRef.current = meetingId
+        
         // Use the shared socket (connected by StudyRoomPage) — do NOT own the socket lifecycle
-        const socket = getSocket()
+        console.log('🔌 Getting socket connection...')
+        let socket = getSocket()
+        
         if (!socket?.connected) {
-          console.log('🔌 Connecting socket...')
-          connectSocket()
+          console.log('🔌 Socket not connected, connecting...')
+          socket = await connectSocket()
         }
-        socketRef.current = socket || getSocket()
+        
+        socketRef.current = socket
+        
+        if (!socketRef.current?.connected) {
+          console.error('❌ Socket failed to connect after waiting')
+          setError('Failed to connect to server. Please refresh.')
+          setConnecting(false)
+          return
+        }
+        
+        console.log('✅ Socket ready:', socketRef.current.id)
         setupSocketListeners(socketRef.current)
         
         console.log(`📡 Joining meeting ${meetingId} as ${userNameRef.current}`)
@@ -166,13 +179,25 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       console.log(`📥 Received ${event.track.kind} track from ${remoteName}`)
       const [remoteStream] = event.streams
       if (remoteStream) {
-        console.log(`✅ Setting remote stream for ${remoteName}`)
+        console.log(`✅ Setting remote stream for ${remoteName}, stream ID: ${remoteStream.id}`)
+        console.log(`   Stream has ${remoteStream.getTracks().length} tracks:`, 
+          remoteStream.getTracks().map(t => `${t.kind} (${t.enabled ? 'enabled' : 'disabled'})`))
+        
         setParticipants(prev => {
           const next = new Map(prev)
           const existing = next.get(remoteSocketId) || {}
-          next.set(remoteSocketId, { ...existing, name: remoteName, stream: remoteStream })
+          next.set(remoteSocketId, { 
+            ...existing, 
+            name: remoteName, 
+            stream: remoteStream,
+            audioOn: existing.audioOn ?? true,
+            videoOn: existing.videoOn ?? true
+          })
+          console.log(`✅ Updated participant ${remoteName} with stream`)
           return next
         })
+      } else {
+        console.warn(`⚠️ No remote stream in track event from ${remoteName}`)
       }
     }
 
@@ -183,12 +208,18 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       }
     }
 
+    pc.onnegotiationneeded = async () => {
+      console.log(`🔄 Negotiation needed for ${remoteName}`)
+    }
+
     pc.oniceconnectionstatechange = () => {
       console.log(`🔌 ICE connection state for ${remoteName}: ${pc.iceConnectionState}`)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         console.log(`✅ Successfully connected to ${remoteName}`)
       } else if (pc.iceConnectionState === 'failed') {
         console.error(`❌ ICE connection failed for ${remoteName}`)
+        console.log('   Attempting ICE restart...')
+        // Could trigger ICE restart here if needed
       } else if (pc.iceConnectionState === 'disconnected') {
         console.warn(`⚠️ ICE connection disconnected for ${remoteName}`)
       }
@@ -230,6 +261,13 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
   // ========== Socket listeners ==========
   const setupSocketListeners = useCallback((socket) => {
+    if (!socket) {
+      console.error('❌ Socket is null, cannot setup listeners')
+      return
+    }
+    
+    console.log('🔧 Setting up socket listeners...')
+    
     // Remove any previous WebRTC listeners to prevent duplicates (critical for React StrictMode)
     socket.off('existing-participants')
     socket.off('user-joined')
@@ -241,10 +279,27 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
     socket.on('existing-participants', async (existingUsers) => {
       console.log('📥 Received existing participants:', existingUsers)
+      console.log('📊 Current state:', {
+        hasLocalStream: !!localStreamRef.current,
+        localTracks: localStreamRef.current?.getTracks().map(t => `${t.kind}:${t.enabled}`),
+        existingPeers: Array.from(peersRef.current.keys())
+      })
+      
+      if (!localStreamRef.current) {
+        console.error('❌ No local stream available to create offers!')
+        return
+      }
+      
       for (const user of existingUsers) {
         try {
           console.log(`🤝 Creating offer for ${user.name} (${user.socketId})`)
           const pc = createPeerConnection(user.socketId, user.name)
+          
+          // Verify tracks were added
+          const senders = pc.getSenders()
+          console.log(`   Peer connection has ${senders.length} senders:`, 
+            senders.map(s => s.track ? `${s.track.kind}:${s.track.enabled}` : 'no-track'))
+          
           const offer = await pc.createOffer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
@@ -496,15 +551,31 @@ function RemoteVideo({ participant }) {
   const videoRef = useRef(null)
 
   useEffect(() => {
-    if (videoRef.current && participant.stream) videoRef.current.srcObject = participant.stream
-  }, [participant.stream])
+    if (videoRef.current && participant.stream) {
+      console.log(`🎥 Setting srcObject for ${participant.name}`)
+      videoRef.current.srcObject = participant.stream
+      
+      // Force play in case autoplay is blocked
+      videoRef.current.play().catch(err => {
+        console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err)
+      })
+    }
+  }, [participant.stream, participant.name])
+
+  const hasStream = !!participant.stream
+  const showVideo = hasStream && participant.videoOn !== false
 
   return (
     <div className="relative rounded-lg overflow-hidden bg-gray-800 min-h-0">
-      {participant.stream && (
-        <video ref={videoRef} autoPlay playsInline className={'w-full h-full object-cover' + (participant.videoOn === false ? ' hidden' : '')} />
+      {hasStream && (
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          className={'w-full h-full object-cover' + (!showVideo ? ' hidden' : '')} 
+        />
       )}
-      {(!participant.stream || participant.videoOn === false) && (
+      {(!hasStream || !showVideo) && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
           <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white text-lg font-bold">
             {(participant.name || '?').charAt(0).toUpperCase()}
