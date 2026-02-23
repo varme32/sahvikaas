@@ -67,7 +67,12 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           return 
         }
 
-        console.log('✅ Media stream acquired')
+        console.log('✅ Media stream acquired:', {
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length,
+          streamId: stream.id
+        })
+        
         localStreamRef.current = stream
         if (localVideoRef.current) localVideoRef.current.srcObject = stream
         stream.getAudioTracks().forEach(t => { t.enabled = isMicOn })
@@ -81,7 +86,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
               ...DEFAULT_ICE_CONFIG,
               ...remoteIceConfig,
             }
-            console.log('✅ ICE configuration loaded:', iceConfigRef.current)
+            console.log('✅ ICE configuration loaded')
           }
         } catch {
           console.log('⚠️ Using default ICE configuration')
@@ -90,7 +95,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
         activeMeetingRef.current = meetingId
         
-        // Use the shared socket (connected by StudyRoomPage) — do NOT own the socket lifecycle
+        // Get socket connection
         console.log('🔌 Getting socket connection...')
         let socket = getSocket()
         
@@ -109,7 +114,12 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         }
         
         console.log('✅ Socket ready:', socketRef.current.id)
+        
+        // CRITICAL: Setup listeners BEFORE joining
         setupSocketListeners(socketRef.current)
+        
+        // Small delay to ensure listeners are registered
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         console.log(`📡 Joining meeting ${meetingId} as ${userNameRef.current}`)
         socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
@@ -158,6 +168,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
   // ========== WebRTC Peer Connection ==========
   const createPeerConnection = useCallback((remoteSocketId, remoteName) => {
+    // Check if peer connection already exists
     const existingPeer = peersRef.current.get(remoteSocketId)
     if (existingPeer) {
       console.log(`♻️ Reusing existing peer connection for ${remoteName}`)
@@ -165,15 +176,24 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     }
 
     console.log(`🆕 Creating new peer connection for ${remoteName} (${remoteSocketId})`)
+    
+    // Verify we have local stream
+    if (!localStreamRef.current) {
+      console.error(`❌ Cannot create peer connection for ${remoteName}: No local stream!`)
+      return null
+    }
+    
     const pc = new RTCPeerConnection(iceConfigRef.current || DEFAULT_ICE_CONFIG)
 
     // Add local tracks to the peer connection
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        console.log(`➕ Adding ${track.kind} track to peer connection for ${remoteName}`)
-        pc.addTrack(track, localStreamRef.current)
-      })
-    }
+    const tracks = localStreamRef.current.getTracks()
+    console.log(`➕ Adding ${tracks.length} tracks to peer connection for ${remoteName}`)
+    
+    tracks.forEach(track => {
+      console.log(`   Adding ${track.kind} track (enabled: ${track.enabled}, readyState: ${track.readyState})`)
+      const sender = pc.addTrack(track, localStreamRef.current)
+      console.log(`   Sender created:`, sender.track ? 'OK' : 'NO TRACK')
+    })
 
     pc.ontrack = (event) => {
       console.log(`📥 Received ${event.track.kind} track from ${remoteName}`)
@@ -278,15 +298,22 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     socket.off('media-state')
 
     socket.on('existing-participants', async (existingUsers) => {
-      console.log('📥 Received existing participants:', existingUsers)
+      console.log('📥 Received existing-participants event')
+      console.log('   Existing users:', existingUsers)
       console.log('📊 Current state:', {
         hasLocalStream: !!localStreamRef.current,
-        localTracks: localStreamRef.current?.getTracks().map(t => `${t.kind}:${t.enabled}`),
-        existingPeers: Array.from(peersRef.current.keys())
+        localTracks: localStreamRef.current?.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`),
+        existingPeers: Array.from(peersRef.current.keys()),
+        socketId: socket.id
       })
       
       if (!localStreamRef.current) {
         console.error('❌ No local stream available to create offers!')
+        return
+      }
+      
+      if (!existingUsers || existingUsers.length === 0) {
+        console.log('ℹ️ No existing users in room, waiting for others to join')
         return
       }
       
@@ -295,16 +322,34 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           console.log(`🤝 Creating offer for ${user.name} (${user.socketId})`)
           const pc = createPeerConnection(user.socketId, user.name)
           
+          if (!pc) {
+            console.error(`❌ Failed to create peer connection for ${user.name}`)
+            continue
+          }
+          
           // Verify tracks were added
           const senders = pc.getSenders()
           console.log(`   Peer connection has ${senders.length} senders:`, 
             senders.map(s => s.track ? `${s.track.kind}:${s.track.enabled}` : 'no-track'))
           
+          if (senders.length === 0) {
+            console.error(`❌ No senders in peer connection for ${user.name}!`)
+            continue
+          }
+          
           const offer = await pc.createOffer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
           })
+          
+          console.log(`   Offer created:`, {
+            type: offer.type,
+            sdpLength: offer.sdp?.length || 0
+          })
+          
           await pc.setLocalDescription(offer)
+          console.log(`   Local description set`)
+          
           socket.emit('offer', { to: user.socketId, offer })
           console.log(`✅ Offer sent to ${user.name}`)
         } catch (error) {
@@ -329,17 +374,38 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
     socket.on('offer', async ({ from, offer, userName: remoteName }) => {
       try {
-        console.log(`📥 Received offer from ${remoteName} (${from})`)
+        console.log(`📥 Received offer event`)
+        console.log(`   From: ${remoteName} (${from})`)
+        console.log(`   Offer type: ${offer?.type}, SDP length: ${offer?.sdp?.length || 0}`)
+        console.log(`   Local stream available: ${!!localStreamRef.current}`)
+        
+        if (!localStreamRef.current) {
+          console.error(`❌ Cannot handle offer: No local stream!`)
+          return
+        }
+        
         const pc = createPeerConnection(from, remoteName)
+        
+        if (!pc) {
+          console.error(`❌ Failed to create peer connection for ${remoteName}`)
+          return
+        }
+        
+        console.log(`   Setting remote description...`)
         await pc.setRemoteDescription(new RTCSessionDescription(offer))
         console.log(`✅ Remote description set for ${remoteName}`)
+        
         await flushQueuedIceCandidates(from)
+        
+        console.log(`   Creating answer...`)
         const answer = await pc.createAnswer()
+        console.log(`   Answer created, setting local description...`)
         await pc.setLocalDescription(answer)
+        console.log(`   Sending answer to ${remoteName}...`)
         socket.emit('answer', { to: from, answer })
         console.log(`✅ Answer sent to ${remoteName}`)
       } catch (error) {
-        console.error(`❌ Failed to handle offer from ${remoteName}:`, error)
+        console.error(`❌ Failed to handle offer from ${remoteName || from}:`, error)
       }
     })
 
@@ -539,7 +605,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
           {/* Remote participants */}
           {[...participants.entries()].map(([socketId, participant]) => (
-            <RemoteVideo key={socketId} participant={participant} />
+            <RemoteVideo key={socketId} participant={participant} socketId={socketId} />
           ))}
         </div>
       </div>
@@ -547,20 +613,40 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   )
 }
 
-function RemoteVideo({ participant }) {
+function RemoteVideo({ participant, socketId }) {
   const videoRef = useRef(null)
+  const [hasVideo, setHasVideo] = useState(false)
 
   useEffect(() => {
     if (videoRef.current && participant.stream) {
-      console.log(`🎥 Setting srcObject for ${participant.name}`)
+      console.log(`🎥 Setting srcObject for ${participant.name} (${socketId})`)
+      console.log(`   Stream ID: ${participant.stream.id}`)
+      console.log(`   Tracks:`, participant.stream.getTracks().map(t => 
+        `${t.kind}:${t.enabled}:${t.readyState}`
+      ))
+      
       videoRef.current.srcObject = participant.stream
       
       // Force play in case autoplay is blocked
-      videoRef.current.play().catch(err => {
-        console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err)
-      })
+      videoRef.current.play()
+        .then(() => {
+          console.log(`✅ Video playing for ${participant.name}`)
+          setHasVideo(true)
+        })
+        .catch(err => {
+          console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err)
+          // Try to play on user interaction
+          videoRef.current.onclick = () => {
+            videoRef.current.play()
+              .then(() => setHasVideo(true))
+              .catch(console.error)
+          }
+        })
+    } else {
+      console.log(`⏳ Waiting for stream from ${participant.name} (${socketId})`)
+      setHasVideo(false)
     }
-  }, [participant.stream, participant.name])
+  }, [participant.stream, participant.name, socketId])
 
   const hasStream = !!participant.stream
   const showVideo = hasStream && participant.videoOn !== false
@@ -576,16 +662,20 @@ function RemoteVideo({ participant }) {
         />
       )}
       {(!hasStream || !showVideo) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-          <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white text-lg font-bold">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800">
+          <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white text-lg font-bold mb-2">
             {(participant.name || '?').charAt(0).toUpperCase()}
           </div>
+          {!hasStream && (
+            <div className="text-xs text-gray-400 animate-pulse">Connecting...</div>
+          )}
         </div>
       )}
       <div className="absolute bottom-1.5 left-1.5">
         <span className="px-2 py-0.5 bg-black/60 text-white text-[10px] rounded-full flex items-center gap-1">
           {participant.name || 'Peer'}
           {participant.audioOn === false && <i className="ri-mic-off-fill text-red-400" />}
+          {!hasStream && <i className="ri-loader-4-line animate-spin text-yellow-400" />}
         </span>
       </div>
     </div>
