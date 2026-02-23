@@ -1,7 +1,8 @@
 ﻿import { useState, useRef, useEffect, useCallback } from 'react'
 import { connectSocket, getSocket } from '../../../lib/socket'
+import { getWebRtcIceConfig } from '../../../lib/api'
 
-const ICE_SERVERS = {
+const DEFAULT_ICE_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -36,6 +37,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   const localStreamRef = useRef(null)
   const screenStreamRef = useRef(null)
   const peersRef = useRef(new Map())
+  const iceConfigRef = useRef(DEFAULT_ICE_CONFIG)
   const pendingIceRef = useRef(new Map())
   const panelRef = useRef(null)
   const socketRef = useRef(null)
@@ -63,6 +65,18 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         if (localVideoRef.current) localVideoRef.current.srcObject = stream
         stream.getAudioTracks().forEach(t => { t.enabled = isMicOn })
         stream.getVideoTracks().forEach(t => { t.enabled = isVideoOn })
+
+        try {
+          const remoteIceConfig = await getWebRtcIceConfig()
+          if (remoteIceConfig?.iceServers?.length) {
+            iceConfigRef.current = {
+              ...DEFAULT_ICE_CONFIG,
+              ...remoteIceConfig,
+            }
+          }
+        } catch {
+          iceConfigRef.current = DEFAULT_ICE_CONFIG
+        }
 
         activeMeetingRef.current = meetingId
         // Use the shared socket (connected by StudyRoomPage) — do NOT own the socket lifecycle
@@ -119,7 +133,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       return existingPeer
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS)
+    const pc = new RTCPeerConnection(iceConfigRef.current || DEFAULT_ICE_CONFIG)
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {

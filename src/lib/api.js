@@ -114,3 +114,7 @@ export async function createMeeting(payload) {
 export async function listMeetings() {
   return apiRequest('/api/meetings')
 }
+
+export async function getWebRtcIceConfig() {
+  return apiRequest('/api/webrtc/ice')
+}

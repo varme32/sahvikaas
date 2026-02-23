@@ -95,6 +95,48 @@ function getLeaderboard(room) {
   return entries.map((e, i) => ({ ...e, rank: i + 1 }))
 }
 
+function getIceConfig() {
+  const stunServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ]
+
+  const turnUrlsFromEnv = (process.env.WEBRTC_TURN_URLS || '')
+    .split(',')
+    .map(url => url.trim())
+    .filter(Boolean)
+
+  const turnUsername = process.env.WEBRTC_TURN_USERNAME || ''
+  const turnCredential = process.env.WEBRTC_TURN_CREDENTIAL || ''
+
+  const turnServers = turnUrlsFromEnv.length > 0 && turnUsername && turnCredential
+    ? turnUrlsFromEnv.map(url => ({ urls: url, username: turnUsername, credential: turnCredential }))
+    : [
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+      ]
+
+  return {
+    iceServers: [...stunServers, ...turnServers],
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: process.env.WEBRTC_FORCE_RELAY === 'true' ? 'relay' : 'all',
+  }
+}
+
 // Middleware
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
@@ -157,6 +199,11 @@ async function extractPdfText(filePath) {
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'StudyHub Backend Running' })
+})
+
+// WebRTC ICE configuration
+app.get('/api/webrtc/ice', (req, res) => {
+  res.json(getIceConfig())
 })
 
 // ---- AI ASSISTANT (Chat) ----
@@ -848,6 +895,7 @@ httpServer.listen(PORT, () => {
   console.log(`   GET  /api/meetings           - List Active Rooms`)
   console.log(`   GET  /api/meetings/:id       - Get Room Info`)
   console.log(`   GET  /api/rooms/:id/state    - Get Room State`)
+  console.log(`   GET  /api/webrtc/ice         - WebRTC ICE Config`)
   console.log(`   GET  /api/health             - Health Check`)
   console.log(`\n🔌 Socket.IO Events:`)
   console.log(`   join-meeting     - Join a room & receive full state`)
