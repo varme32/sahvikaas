@@ -4,10 +4,14 @@ import { getWebRtcIceConfig } from '../../../lib/api'
 
 const DEFAULT_ICE_CONFIG = {
   iceServers: [
+    // Google STUN servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:openrelay.metered.ca:80' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    
+    // Metered TURN servers (free, more reliable)
     {
       urls: 'turn:openrelay.metered.ca:80',
       username: 'openrelayproject',
@@ -23,8 +27,28 @@ const DEFAULT_ICE_CONFIG = {
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
+    
+    // Additional free TURN servers as backup
+    {
+      urls: 'turn:relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
   iceCandidatePoolSize: 10,
+  iceTransportPolicy: 'all', // Try all connection types
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
 }
 
 export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenSharing, onScreenShareChange, userName }) {
@@ -238,10 +262,33 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         console.log(`✅ Successfully connected to ${remoteName}`)
       } else if (pc.iceConnectionState === 'failed') {
         console.error(`❌ ICE connection failed for ${remoteName}`)
-        console.log('   Attempting ICE restart...')
-        // Could trigger ICE restart here if needed
+        console.log(`🔄 Attempting ICE restart for ${remoteName}...`)
+        
+        // Attempt ICE restart
+        setTimeout(async () => {
+          try {
+            if (pc.signalingState === 'stable') {
+              console.log(`   Creating new offer with ICE restart...`)
+              const offer = await pc.createOffer({ iceRestart: true })
+              await pc.setLocalDescription(offer)
+              socketRef.current?.emit('offer', { to: remoteSocketId, offer })
+              console.log(`   ICE restart offer sent to ${remoteName}`)
+            }
+          } catch (err) {
+            console.error(`   ICE restart failed:`, err)
+          }
+        }, 1000)
       } else if (pc.iceConnectionState === 'disconnected') {
         console.warn(`⚠️ ICE connection disconnected for ${remoteName}`)
+        console.log(`   Waiting 3 seconds before attempting reconnection...`)
+        
+        // Wait a bit before trying to reconnect
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            console.log(`   Still disconnected, attempting ICE restart...`)
+            pc.restartIce()
+          }
+        }, 3000)
       }
     }
 

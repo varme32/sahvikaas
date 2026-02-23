@@ -100,6 +100,8 @@ function getIceConfig() {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ]
 
   const turnUrlsFromEnv = (process.env.WEBRTC_TURN_URLS || '')
@@ -113,6 +115,7 @@ function getIceConfig() {
   const turnServers = turnUrlsFromEnv.length > 0 && turnUsername && turnCredential
     ? turnUrlsFromEnv.map(url => ({ urls: url, username: turnUsername, credential: turnCredential }))
     : [
+        // Metered TURN servers (primary)
         {
           urls: 'turn:openrelay.metered.ca:80',
           username: 'openrelayproject',
@@ -128,12 +131,30 @@ function getIceConfig() {
           username: 'openrelayproject',
           credential: 'openrelayproject',
         },
+        // Backup TURN servers
+        {
+          urls: 'turn:relay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        {
+          urls: 'turn:relay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        {
+          urls: 'turn:relay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
       ]
 
   return {
     iceServers: [...stunServers, ...turnServers],
     iceCandidatePoolSize: 10,
     iceTransportPolicy: process.env.WEBRTC_FORCE_RELAY === 'true' ? 'relay' : 'all',
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
   }
 }
 
