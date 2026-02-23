@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
+import { getSocket } from '../../../lib/socket'
 
 const tabIcons = {
   Participants: 'ri-group-line',
@@ -8,12 +9,27 @@ const tabIcons = {
   Meeting: 'ri-settings-3-line',
 }
 
-const participants = []
-
-export default function SettingsModal({ isOpen, onClose }) {
+export default function SettingsModal({ isOpen, onClose, roomId }) {
   const [activeTab, setActiveTab] = useState('Participants')
   const [waitingRoom, setWaitingRoom] = useState(false)
   const [screenSharing, setScreenSharing] = useState(true)
+  const [participants, setParticipants] = useState([])
+
+  // Subscribe to real-time participant updates
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleParticipants = (list) => {
+      setParticipants(list)
+    }
+
+    socket.on('participants-updated', handleParticipants)
+
+    return () => {
+      socket.off('participants-updated', handleParticipants)
+    }
+  }, [])
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
@@ -59,23 +75,31 @@ export default function SettingsModal({ isOpen, onClose }) {
         <div className="flex-1 pt-2 sm:pt-12 p-4 overflow-y-auto min-h-0">
           {activeTab === 'Participants' && (
             <div className="space-y-2">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs text-gray-500 font-medium">{participants.length} participant{participants.length !== 1 ? 's' : ''} online</span>
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              </div>
               {participants.length === 0 && (
                 <div className="text-center py-8 text-gray-400">
                   <i className="ri-group-line text-3xl" />
                   <p className="text-sm mt-2">No participants yet</p>
                 </div>
               )}
-              {participants.map((p, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50">
+              {participants.map((p) => (
+                <div key={p.socketId} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50">
                   <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center relative">
-                    <i className="ri-user-line text-indigo-600" />
-                    {p.online && (
-                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
-                    )}
+                    <span className="text-sm font-medium text-indigo-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900">{p.name}</p>
-                    <p className="text-xs text-gray-400">{p.time}</p>
+                    <p className="text-xs text-gray-400">
+                      {p.joinedAt ? `Joined ${new Date(p.joinedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Online'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <i className={`text-sm ${p.audioOn !== false ? 'ri-mic-line text-green-500' : 'ri-mic-off-line text-red-400'}`} />
+                    <i className={`text-sm ${p.videoOn !== false ? 'ri-vidicon-line text-green-500' : 'ri-vidicon-off-line text-red-400'}`} />
                   </div>
                 </div>
               ))}

@@ -1,12 +1,36 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
+import { getSocket } from '../../../lib/socket'
 
-const pointsBreakdown = []
-
-const leaderboard = []
-
-export default function PointsModal({ isOpen, onClose, totalPoints }) {
+export default function PointsModal({ isOpen, onClose, roomId, userName }) {
   const [activeTab, setActiveTab] = useState('breakdown')
+  const [leaderboard, setLeaderboard] = useState([])
+  const [userPoints, setUserPoints] = useState({ points: 0, activities: [] })
+
+  // Subscribe to real-time points updates
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handlePointsUpdated = (data) => {
+      if (data.leaderboard) setLeaderboard(data.leaderboard)
+      if (data.userPoints) setUserPoints(data.userPoints)
+    }
+
+    socket.on('points-updated', handlePointsUpdated)
+
+    // Request points data when modal opens
+    if (isOpen && roomId) {
+      socket.emit('get-points', { meetingId: roomId })
+    }
+
+    return () => {
+      socket.off('points-updated', handlePointsUpdated)
+    }
+  }, [isOpen, roomId])
+
+  const totalPoints = userPoints?.points || 0
+  const pointsBreakdown = userPoints?.activities || []
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-2xl">
@@ -74,30 +98,33 @@ export default function PointsModal({ isOpen, onClose, totalPoints }) {
                 <p className="text-xs mt-1">Earn points to appear here!</p>
               </div>
             )}
-            {leaderboard.map(user => (
-              <div
-                key={user.rank}
-                className={`flex items-center gap-3 p-3 rounded-lg ${
-                  user.isSelf ? 'bg-indigo-50 border border-indigo-200' : 'bg-gray-50'
-                }`}
-              >
-                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                  user.rank === 1 ? 'bg-yellow-400 text-white' :
-                  user.rank === 2 ? 'bg-gray-400 text-white' :
-                  user.rank === 3 ? 'bg-orange-400 text-white' :
-                  'bg-gray-200 text-gray-600'
-                }`}>
-                  {user.rank}
-                </span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {user.name}
-                    {user.isSelf && <span className="ml-2 text-xs text-indigo-600">(You)</span>}
-                  </p>
+            {leaderboard.map(user => {
+              const isSelf = user.name === userName
+              return (
+                <div
+                  key={user.rank}
+                  className={`flex items-center gap-3 p-3 rounded-lg ${
+                    isSelf ? 'bg-indigo-50 border border-indigo-200' : 'bg-gray-50'
+                  }`}
+                >
+                  <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                    user.rank === 1 ? 'bg-yellow-400 text-white' :
+                    user.rank === 2 ? 'bg-gray-400 text-white' :
+                    user.rank === 3 ? 'bg-orange-400 text-white' :
+                    'bg-gray-200 text-gray-600'
+                  }`}>
+                    {user.rank}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      {user.name}
+                      {isSelf && <span className="ml-2 text-xs text-indigo-600">(You)</span>}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-gray-700">{user.points} pts</span>
                 </div>
-                <span className="text-sm font-semibold text-gray-700">{user.points} pts</span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

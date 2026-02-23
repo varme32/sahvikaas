@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../lib/auth'
 
 export default function AuthPage({ mode }) {
   const [isLogin, setIsLogin] = useState(mode === 'login')
@@ -75,6 +76,7 @@ export default function AuthPage({ mode }) {
 }
 
 function LoginForm({ onSwitch, onSuccess }) {
+  const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -91,9 +93,14 @@ function LoginForm({ onSwitch, onSuccess }) {
     }
     setLoading(true)
     setTimeout(() => {
+      const result = login({ email, password })
       setLoading(false)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
       onSuccess()
-    }, 1000)
+    }, 600)
   }
 
   return (
@@ -191,6 +198,7 @@ function LoginForm({ onSwitch, onSuccess }) {
 }
 
 function SignupForm({ onSwitch, onSuccess }) {
+  const { signup } = useAuth()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -230,9 +238,14 @@ function SignupForm({ onSwitch, onSuccess }) {
     }
     setLoading(true)
     setTimeout(() => {
+      const result = signup({ name, email, password })
       setLoading(false)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
       onSuccess()
-    }, 1000)
+    }, 600)
   }
 
   return (

@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from '../../components/ui/Modal'
+import { useAuth } from '../../lib/auth'
 
 export default function CreateRoomPage() {
   const navigate = useNavigate()
+  const { user, createRoom } = useAuth()
   const [formData, setFormData] = useState({
     name: '',
     subject: '',
@@ -37,13 +39,22 @@ export default function CreateRoomPage() {
       return
     }
     setLoading(true)
-    // Simulate room creation
     setTimeout(() => {
-      const roomId = 'room_' + Math.random().toString(36).substr(2, 9)
-      setCreatedRoomId(roomId)
+      const result = createRoom({
+        name: formData.name,
+        subject: formData.subject,
+        privacy: formData.privacy,
+        audio: formData.audio,
+        video: formData.video,
+      })
       setLoading(false)
+      if (!result.ok) {
+        setErrorModal({ open: true, message: result.error })
+        return
+      }
+      setCreatedRoomId(result.room.id)
       setSuccessModal(true)
-    }, 1500)
+    }, 800)
   }
 
   const roomUrl = `${window.location.origin}/room/${createdRoomId}`

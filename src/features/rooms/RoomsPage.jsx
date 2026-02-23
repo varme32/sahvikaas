@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Modal from '../../components/ui/Modal'
+import { useAuth } from '../../lib/auth'
 
 const categories = ['All Rooms', 'Computer Science', 'Mathematics', 'Physics']
 
@@ -20,13 +21,30 @@ const upcomingRooms = [
 
 export default function RoomsPage() {
   const navigate = useNavigate()
+  const { getAllRooms, user } = useAuth()
   const [activeCategory, setActiveCategory] = useState('All Rooms')
   const [joinModalOpen, setJoinModalOpen] = useState(false)
   const [joinUrl, setJoinUrl] = useState('')
 
+  // Merge sample rooms with user-created rooms from local store
+  const userRooms = getAllRooms().map(r => ({
+    id: r.id,
+    name: r.name,
+    description: r.subject,
+    status: 'Active',
+    participants: 0,
+    max: 12,
+    time: 'Created ' + new Date(r.createdAt).toLocaleDateString(),
+    host: r.creatorName,
+    category: r.subject,
+    isUserRoom: true,
+  }))
+
+  const allRooms = [...userRooms, ...roomsData]
+
   const filteredRooms = activeCategory === 'All Rooms'
-    ? roomsData
-    : roomsData.filter(r => r.category === activeCategory)
+    ? allRooms
+    : allRooms.filter(r => r.category === activeCategory)
 
   const handleJoinByUrl = () => {
     if (!joinUrl.trim()) return
@@ -102,10 +120,15 @@ export default function RoomsPage() {
       {/* Active Rooms Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
         {filteredRooms.map(room => (
-          <div key={room.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 sm:p-5">
+          <div key={room.id} className={`bg-white border rounded-lg shadow-sm p-3 sm:p-5 ${room.isUserRoom ? 'border-indigo-200 ring-1 ring-indigo-100' : 'border-gray-200'}`}>
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="font-semibold text-gray-900">{room.name}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-gray-900">{room.name}</h3>
+                  {room.isUserRoom && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700">Your Room</span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-500 mt-0.5">{room.description}</p>
               </div>
               {statusBadge(room.status)}

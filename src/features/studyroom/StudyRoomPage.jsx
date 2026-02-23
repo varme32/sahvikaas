@@ -11,6 +11,8 @@ import TasksPanel from './components/TasksPanel'
 import SettingsModal from './components/SettingsModal'
 import PointsModal from './components/PointsModal'
 import VoiceAssistant from './components/VoiceAssistant'
+import { getSocket, connectSocket, disconnectSocket } from '../../lib/socket'
+import { useAuth } from '../../lib/auth'
 
 const featureTabs = [
   { id: 'chat', label: 'Chat', icon: 'ri-message-3-line' },
@@ -51,8 +53,58 @@ function useIsTablet() {
 export default function StudyRoomPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  // Use the room ID directly as the meeting ID — no separate meeting ID needed
+  const meetingIdFromUrl = id || ''
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
+
+  // Use the logged-in user's real name
+  const [userName] = useState(() => {
+    if (user?.name) {
+      sessionStorage.setItem('studyhub-username', user.name)
+      return user.name
+    }
+    const stored = sessionStorage.getItem('studyhub-username')
+    if (stored) return stored
+    const name = 'User ' + Math.floor(Math.random() * 9000 + 1000)
+    sessionStorage.setItem('studyhub-username', name)
+    return name
+  })
+
+  // Participant count from socket
+  const [participantCount, setParticipantCount] = useState(0)
+  // Points from socket
+  const [totalPoints, setTotalPoints] = useState(0)
+
+  // Connect socket when entering the study room, disconnect when leaving
+  useEffect(() => {
+    connectSocket()
+    return () => {
+      disconnectSocket()
+    }
+  }, [])
+
+  // Subscribe to socket events for participant count and points
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleParticipants = (list) => {
+      setParticipantCount(list.length)
+    }
+    const handlePoints = (data) => {
+      if (data.userPoints) setTotalPoints(data.userPoints.points || 0)
+    }
+
+    socket.on('participants-updated', handleParticipants)
+    socket.on('points-updated', handlePoints)
+
+    return () => {
+      socket.off('participants-updated', handleParticipants)
+      socket.off('points-updated', handlePoints)
+    }
+  }, [])
 
   // Media controls
   const [isMicOn, setIsMicOn] = useState(true)
@@ -134,13 +186,13 @@ export default function StudyRoomPage() {
 
   const renderFeatureContent = () => {
     switch (activeFeature) {
-      case 'chat': return <ChatPanel />
-      case 'notes': return <NotesPanel />
+      case 'chat': return <ChatPanel roomId={meetingIdFromUrl} userName={userName} />
+      case 'notes': return <NotesPanel roomId={meetingIdFromUrl} />
       case 'pdf': return <PdfSummarizerPanel />
       case 'quiz': return <QuizGeneratorPanel />
-      case 'resources': return <ResourcesPanel />
-      case 'tasks': return <TasksPanel />
-      default: return <ChatPanel />
+      case 'resources': return <ResourcesPanel roomId={meetingIdFromUrl} />
+      case 'tasks': return <TasksPanel roomId={meetingIdFromUrl} />
+      default: return <ChatPanel roomId={meetingIdFromUrl} userName={userName} />
     }
   }
 
@@ -157,7 +209,7 @@ export default function StudyRoomPage() {
             <i className="ri-user-line text-lg sm:text-xl text-indigo-600" />
           </div>
           <div className="hidden xs:block">
-            <h3 className="font-medium text-gray-900 text-sm">User</h3>
+            <h3 className="font-medium text-gray-900 text-sm">{userName}</h3>
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <span className="w-2 h-2 bg-green-500 rounded-full" />
               Online
@@ -168,7 +220,7 @@ export default function StudyRoomPage() {
         {/* Center: Room */}
         <div className="study-nav-center text-center min-w-0">
           <h2 className="text-sm sm:text-base font-semibold text-gray-900 truncate">Study Room</h2>
-          <p className="text-[10px] sm:text-xs text-gray-500">Room #{id || '—'}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500">Room #{id || '—'} · {participantCount} online</p>
         </div>
 
         {/* Right: Controls - Desktop */}
@@ -178,7 +230,7 @@ export default function StudyRoomPage() {
             className="flex items-center bg-indigo-50 px-2 lg:px-3 py-1.5 rounded-full cursor-pointer hover:bg-indigo-100 transition-colors"
           >
             <i className="ri-coins-line text-indigo-600 mr-1 lg:mr-1.5 text-sm" />
-            <span className="font-semibold text-indigo-600 text-sm">0</span>
+            <span className="font-semibold text-indigo-600 text-sm">{totalPoints}</span>
           </div>
 
           <button
@@ -263,7 +315,7 @@ export default function StudyRoomPage() {
             className="flex items-center bg-indigo-50 px-2.5 py-1.5 rounded-full cursor-pointer hover:bg-indigo-100 transition-colors"
           >
             <i className="ri-coins-line text-indigo-600 mr-1 text-sm" />
-            <span className="font-semibold text-indigo-600 text-sm">0</span>
+            <span className="font-semibold text-indigo-600 text-sm">{totalPoints}</span>
           </div>
           <button
             onClick={() => { setVoiceOpen(v => !v); setControlsExpanded(false) }}
@@ -293,7 +345,7 @@ export default function StudyRoomPage() {
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Mobile panel content */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {mobilePanel === 'video' && <VideoPanel />}
+            {mobilePanel === 'video' && <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />}
             {mobilePanel === 'ai' && <AIAssistant />}
             {mobilePanel === 'features' && (
               <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -350,7 +402,7 @@ export default function StudyRoomPage() {
           >
             {/* Top: Video Grid */}
             <div className="overflow-hidden" style={{ height: `${horizontalSplit}%` }}>
-              <VideoPanel />
+              <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />
             </div>
 
             {/* Horizontal Resize Handle */}
@@ -404,8 +456,8 @@ export default function StudyRoomPage() {
       )}
 
       {/* Modals */}
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <PointsModal isOpen={pointsOpen} onClose={() => setPointsOpen(false)} totalPoints={0} />
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} roomId={meetingIdFromUrl} />
+      <PointsModal isOpen={pointsOpen} onClose={() => setPointsOpen(false)} roomId={meetingIdFromUrl} userName={userName} />
 
       {/* Voice Assistant */}
       <VoiceAssistant isOpen={voiceOpen} onToggle={() => setVoiceOpen(v => !v)} />

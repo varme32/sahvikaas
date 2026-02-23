@@ -1,29 +1,59 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
+import { getSocket } from '../../../lib/socket'
 
-export default function TasksPanel() {
+export default function TasksPanel({ roomId }) {
   const [tasks, setTasks] = useState([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [newTask, setNewTask] = useState({ text: '', dueDate: '' })
 
+  // Subscribe to real-time task events
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleRoomState = (state) => {
+      if (state.tasks) setTasks(state.tasks)
+    }
+
+    const handleTasksUpdated = (updatedTasks) => {
+      setTasks(updatedTasks)
+    }
+
+    socket.on('room-state', handleRoomState)
+    socket.on('tasks-updated', handleTasksUpdated)
+
+    return () => {
+      socket.off('room-state', handleRoomState)
+      socket.off('tasks-updated', handleTasksUpdated)
+    }
+  }, [])
+
   const addTask = () => {
     if (!newTask.text.trim()) return
-    setTasks(prev => [...prev, {
-      id: Date.now(),
-      text: newTask.text.trim(),
-      dueDate: newTask.dueDate,
-      completed: false,
-    }])
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('task-add', {
+        meetingId: roomId,
+        task: { text: newTask.text.trim(), dueDate: newTask.dueDate },
+      })
+    }
     setNewTask({ text: '', dueDate: '' })
     setShowAddModal(false)
   }
 
   const toggleTask = (id) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t))
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('task-toggle', { meetingId: roomId, taskId: id })
+    }
   }
 
   const deleteTask = (id) => {
-    setTasks(prev => prev.filter(t => t.id !== id))
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('task-delete', { meetingId: roomId, taskId: id })
+    }
   }
 
   const formatDate = (dateStr) => {
@@ -35,7 +65,10 @@ export default function TasksPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-700">Study Tasks</h4>
+        <h4 className="text-sm font-semibold text-gray-700">
+          Study Tasks
+          <span className="ml-2 text-[10px] font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">Shared</span>
+        </h4>
         <button onClick={() => setShowAddModal(true)} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
           + Add Task
         </button>
@@ -54,9 +87,14 @@ export default function TasksPanel() {
               <p className={`text-sm ${task.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
                 {task.text}
               </p>
-              {task.dueDate && (
-                <p className="text-xs text-gray-400 mt-0.5">{formatDate(task.dueDate)}</p>
-              )}
+              <div className="flex items-center gap-2 mt-0.5">
+                {task.dueDate && (
+                  <p className="text-xs text-gray-400">{formatDate(task.dueDate)}</p>
+                )}
+                {task.createdBy && (
+                  <span className="text-[10px] text-gray-400">by {task.createdBy}</span>
+                )}
+              </div>
             </div>
             <button
               onClick={() => deleteTask(task.id)}

@@ -5,4 +5,17 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   base: '/studyhub/',
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
 })

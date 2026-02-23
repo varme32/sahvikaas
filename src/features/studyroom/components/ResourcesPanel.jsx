@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
+import { getSocket } from '../../../lib/socket'
 
-export default function ResourcesPanel() {
+export default function ResourcesPanel({ roomId }) {
   const [folders, setFolders] = useState([])
   const [files, setFiles] = useState([])
   const [currentFolder, setCurrentFolder] = useState(null)
@@ -10,6 +11,30 @@ export default function ResourcesPanel() {
   const [showFolderModal, setShowFolderModal] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [uploadForm, setUploadForm] = useState({ title: '', description: '', file: null })
+
+  // Subscribe to real-time resource events
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleRoomState = (state) => {
+      if (state.resources) setFiles(state.resources)
+      if (state.folders) setFolders(state.folders)
+    }
+
+    const handleResourcesUpdated = ({ resources, folders: newFolders }) => {
+      setFiles(resources)
+      setFolders(newFolders)
+    }
+
+    socket.on('room-state', handleRoomState)
+    socket.on('resources-updated', handleResourcesUpdated)
+
+    return () => {
+      socket.off('room-state', handleRoomState)
+      socket.off('resources-updated', handleResourcesUpdated)
+    }
+  }, [])
 
   const fileIcons = {
     pdf: { icon: 'ri-file-pdf-2-line', color: 'text-red-500' },
@@ -26,7 +51,10 @@ export default function ResourcesPanel() {
 
   const createFolder = () => {
     if (!newFolderName.trim()) return
-    setFolders(prev => [...prev, { id: 'f' + Date.now(), name: newFolderName.trim(), items: 0 }])
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('resource-folder-create', { meetingId: roomId, name: newFolderName.trim() })
+    }
     setNewFolderName('')
     setShowFolderModal(false)
   }
@@ -35,13 +63,19 @@ export default function ResourcesPanel() {
     if (!uploadForm.title || !uploadForm.file) return
     const ext = uploadForm.file.name.split('.').pop().toLowerCase()
     const typeMap = { pdf: 'pdf', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', mp4: 'video', mp3: 'audio', txt: 'text' }
-    setFiles(prev => [...prev, {
-      id: 'file' + Date.now(),
-      name: uploadForm.title,
-      type: typeMap[ext] || 'default',
-      size: (uploadForm.file.size / 1024).toFixed(0) + ' KB',
-      folderId: currentFolder,
-    }])
+
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('resource-add', {
+        meetingId: roomId,
+        resource: {
+          name: uploadForm.title,
+          type: typeMap[ext] || 'default',
+          size: (uploadForm.file.size / 1024).toFixed(0) + ' KB',
+          folderId: currentFolder,
+        },
+      })
+    }
     setUploadForm({ title: '', description: '', file: null })
     setShowUploadModal(false)
   }
@@ -73,7 +107,10 @@ export default function ResourcesPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-700">Study Resources</h4>
+        <h4 className="text-sm font-semibold text-gray-700">
+          Study Resources
+          <span className="ml-2 text-[10px] font-normal text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">Shared</span>
+        </h4>
         <button
           onClick={() => setShowUploadModal(true)}
           className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"

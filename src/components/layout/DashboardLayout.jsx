@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../lib/auth'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'ri-dashboard-line' },
@@ -24,6 +25,7 @@ export default function DashboardLayout() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, logout } = useAuth()
 
   // Close sidebar on route change in mobile
   useEffect(() => {
@@ -94,11 +96,13 @@ export default function DashboardLayout() {
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
             <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center">
-              <i className="ri-user-line text-indigo-600" />
+              <span className="text-sm font-bold text-indigo-600">
+                {user?.name ? user.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : 'U'}
+              </span>
             </div>
-            <div className="text-left">
-              <p className="text-sm font-medium text-gray-900">John Doe</p>
-              <p className="text-xs text-gray-500">Computer Science</p>
+            <div className="text-left min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'Guest'}</p>
+              <p className="text-xs text-gray-500 truncate">{user?.major || user?.email || ''}</p>
             </div>
           </button>
         </div>
