@@ -728,6 +728,7 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('newProducer', {
         producerId: id,
         peerId: socket.id,
+        peerName: socket.userName || 'Unknown',
         kind,
       })
       
@@ -787,7 +788,15 @@ io.on('connection', (socket) => {
   socket.on('getProducers', ({ roomId }, callback) => {
     try {
       const producers = mediasoupServer.getProducers(roomId, socket.id)
-      callback({ producers })
+      
+      // Get room to fetch peer names
+      const room = rooms.get(roomId)
+      const producersWithNames = producers.map(p => ({
+        ...p,
+        peerName: room?.participants.get(p.peerId)?.name || 'Unknown',
+      }))
+      
+      callback({ producers: producersWithNames })
     } catch (error) {
       console.error('getProducers error:', error)
       callback({ error: error.message })

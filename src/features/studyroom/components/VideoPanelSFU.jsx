@@ -189,7 +189,7 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
 
         console.log(`✅ Found ${producers.length} existing producers`)
         for (const producer of producers) {
-          await consumeProducer(producer.id, producer.peerId)
+          await consumeProducer(producer.id, producer.peerId, producer.peerName)
         }
 
         setConnected(true)
@@ -209,9 +209,9 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
   }, [meetingId])
 
   // ========== Consume producer ==========
-  const consumeProducer = useCallback(async (producerId, peerId) => {
+  const consumeProducer = useCallback(async (producerId, peerId, peerName) => {
     try {
-      console.log(`📥 Consuming producer ${producerId} from peer ${peerId}`)
+      console.log(`📥 Consuming producer ${producerId} from peer ${peerName || peerId}`)
 
       const { consumer } = await new Promise((resolve, reject) => {
         socketRef.current.emit('consume', {
@@ -257,7 +257,12 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
       // Update participants
       setParticipants(prev => {
         const next = new Map(prev)
-        const existing = next.get(peerId) || { streams: {} }
+        const existing = next.get(peerId) || { 
+          name: peerName || `Peer ${peerId.slice(0, 4)}`,
+          streams: {},
+          audioOn: true,
+          videoOn: true,
+        }
         existing.streams = existing.streams || {}
         existing.streams[consumer.kind] = stream
         
@@ -276,7 +281,7 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
         return next
       })
 
-      console.log(`✅ Consuming ${consumer.kind} from peer ${peerId}`)
+      console.log(`✅ Consuming ${consumer.kind} from peer ${peerName || peerId}`)
     } catch (error) {
       console.error('❌ Consume error:', error)
     }
@@ -286,9 +291,9 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
   const setupSocketListeners = useCallback(() => {
     const socket = socketRef.current
 
-    socket.on('newProducer', async ({ producerId, peerId, kind }) => {
-      console.log(`🆕 New producer ${kind} from peer ${peerId}`)
-      await consumeProducer(producerId, peerId)
+    socket.on('newProducer', async ({ producerId, peerId, kind, peerName }) => {
+      console.log(`🆕 New producer ${kind} from peer ${peerName || peerId}`)
+      await consumeProducer(producerId, peerId, peerName)
     })
 
     socket.on('producerClosed', ({ producerId }) => {
@@ -299,10 +304,22 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
           data.consumer.close()
           consumersRef.current.delete(consumerId)
           
-          // Update participants
+          // Update participants - remove specific stream
           setParticipants(prev => {
             const next = new Map(prev)
-            next.delete(data.peerId)
+            const participant = next.get(data.peerId)
+            if (participant && participant.streams) {
+              delete participant.streams[data.kind]
+              // Update combined stream
+              if (participant.streams.video || participant.streams.audio) {
+                const tracks = []
+                if (participant.streams.video) tracks.push(...participant.streams.video.getTracks())
+                if (participant.streams.audio) tracks.push(...participant.streams.audio.getTracks())
+                participant.stream = new MediaStream(tracks)
+              } else {
+                next.delete(data.peerId)
+              }
+            }
             return next
           })
         }
@@ -314,6 +331,19 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
       setParticipants(prev => {
         const next = new Map(prev)
         next.delete(id)
+        return next
+      })
+    })
+
+    socket.on('media-state', ({ from, audio, video }) => {
+      console.log(`🎤📹 Media state from ${from}: audio=${audio}, video=${video}`)
+      setParticipants(prev => {
+        const next = new Map(prev)
+        const participant = next.get(from)
+        if (participant) {
+          participant.audioOn = audio
+          participant.videoOn = video
+        }
         return next
       })
     })
@@ -429,30 +459,56 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
 
 function RemoteVideo({ participant, peerId }) {
   const videoRef = useRef(null)
+  const [videoPlaying, setVideoPlaying] = useState(false)
 
   useEffect(() => {
     if (videoRef.current && participant.stream) {
-      console.log(`🎥 Setting stream for peer ${peerId}`)
+      console.log(`🎥 Setting stream for peer ${participant.name || peerId}`)
       videoRef.current.srcObject = participant.stream
+      
+      // Try to play
+      videoRef.current.play()
+        .then(() => {
+          console.log(`✅ Video playing for ${participant.name || peerId}`)
+          setVideoPlaying(true)
+        })
+        .catch(err => {
+          console.warn(`⚠️ Autoplay blocked for ${participant.name || peerId}:`, err)
+          setVideoPlaying(false)
+        })
+    } else {
+      setVideoPlaying(false)
     }
-  }, [participant.stream, peerId])
+  }, [participant.stream, participant.name, peerId])
+
+  const hasStream = !!participant.stream
+  const showVideo = hasStream && participant.videoOn !== false
 
   return (
     <div className="relative rounded-lg overflow-hidden bg-gray-800 min-h-0">
-      {participant.stream && (
-        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+      {hasStream && (
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          className={'w-full h-full object-cover' + (!showVideo ? ' hidden' : '')} 
+        />
       )}
-      {!participant.stream && (
+      {(!hasStream || !showVideo) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800">
           <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white text-lg font-bold mb-2">
-            P
+            {(participant.name || 'P').charAt(0).toUpperCase()}
           </div>
-          <div className="text-xs text-gray-400 animate-pulse">Connecting...</div>
+          {!hasStream && (
+            <div className="text-xs text-gray-400 animate-pulse">Connecting...</div>
+          )}
         </div>
       )}
       <div className="absolute bottom-1.5 left-1.5">
-        <span className="px-2 py-0.5 bg-black/60 text-white text-[10px] rounded-full">
-          Peer {peerId.slice(0, 4)}
+        <span className="px-2 py-0.5 bg-black/60 text-white text-[10px] rounded-full flex items-center gap-1">
+          {participant.name || `Peer ${peerId.slice(0, 4)}`}
+          {participant.audioOn === false && <i className="ri-mic-off-fill text-red-400" />}
+          {!videoPlaying && hasStream && <i className="ri-loader-4-line animate-spin text-yellow-400" />}
         </span>
       </div>
     </div>
