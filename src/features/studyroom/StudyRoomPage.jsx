@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import VideoPanelSFU from './components/VideoPanelSFU'
+import VideoPanel from './components/VideoPanel'
 import AIAssistant from './components/AIAssistant'
 import ChatPanel from './components/ChatPanel'
 import NotesPanel from './components/NotesPanel'
@@ -345,7 +345,7 @@ export default function StudyRoomPage() {
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Mobile panel content */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {mobilePanel === 'video' && <VideoPanelSFU meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />}
+            {mobilePanel === 'video' && <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />}
             {mobilePanel === 'ai' && <AIAssistant />}
             {mobilePanel === 'features' && (
               <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -402,7 +402,7 @@ export default function StudyRoomPage() {
           >
             {/* Top: Video Grid */}
             <div className="overflow-hidden" style={{ height: `${horizontalSplit}%` }}>
-              <VideoPanelSFU meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />
+              <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />
             </div>
 
             {/* Horizontal Resize Handle */}
