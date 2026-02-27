@@ -13,6 +13,13 @@ import DashboardLayout from './components/layout/DashboardLayout'
 import { ToastProvider } from './components/ui/Toast'
 import { AuthProvider, useAuth } from './lib/auth'
 
+// AI Tool Pages
+import StudyAssistant from './features/aitools/tools/StudyAssistant'
+import QuizGenerator from './features/aitools/tools/QuizGenerator'
+import FlashcardGenerator from './features/aitools/tools/FlashcardGenerator'
+import NotesSummarizer from './features/aitools/tools/NotesSummarizer'
+import GenericTool from './features/aitools/tools/GenericTool'
+
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
   if (loading) {
@@ -53,6 +60,14 @@ function App() {
             </Route>
             <Route path="/create-room" element={<ProtectedRoute><CreateRoomPage /></ProtectedRoute>} />
             <Route path="/room/:id" element={<ProtectedRoute><StudyRoomPage /></ProtectedRoute>} />
+            
+            {/* AI Tool Routes */}
+            <Route path="/ai-tools/assistant" element={<ProtectedRoute><StudyAssistant /></ProtectedRoute>} />
+            <Route path="/ai-tools/quiz" element={<ProtectedRoute><QuizGenerator /></ProtectedRoute>} />
+            <Route path="/ai-tools/flashcards" element={<ProtectedRoute><FlashcardGenerator /></ProtectedRoute>} />
+            <Route path="/ai-tools/summarizer" element={<ProtectedRoute><NotesSummarizer /></ProtectedRoute>} />
+            <Route path="/ai-tools/tool/:toolId" element={<ProtectedRoute><GenericTool /></ProtectedRoute>} />
+            
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </HashRouter>

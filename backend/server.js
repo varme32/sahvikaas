@@ -18,7 +18,7 @@ import Room from './models/Room.js'
 import authRoutes from './routes/auth.js'
 import scheduleRoutes from './routes/schedule.js'
 import resourceRoutes from './routes/resources.js'
-
+import aiRoutes from './routes/ai.js'
 import achievementRoutes from './routes/achievements.js'
 import dashboardRoutes from './routes/dashboard.js'
 import roomsRoutes from './routes/rooms.js'
@@ -176,6 +176,7 @@ app.use(express.json({ limit: '50mb' }))
 app.use('/api/auth', authRoutes)
 app.use('/api/schedule', scheduleRoutes)
 app.use('/api/resources', resourceRoutes)
+app.use('/api/ai', aiRoutes)
 app.use('/api/achievements', achievementRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/rooms', roomsRoutes)

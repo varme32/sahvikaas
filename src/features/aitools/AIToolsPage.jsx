@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { sendAIMessage } from '../../lib/api'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 // ─── AI Tools Data ───
 const aiTools = [
@@ -13,6 +13,7 @@ const aiTools = [
     text: 'text-indigo-600',
     action: 'Start Conversation',
     category: 'learn',
+    route: '/ai-tools/assistant',
   },
   {
     id: 'quiz',
@@ -24,6 +25,7 @@ const aiTools = [
     text: 'text-teal-600',
     action: 'Generate Quiz',
     category: 'practice',
+    route: '/ai-tools/quiz',
   },
   {
     id: 'planner',
@@ -35,6 +37,7 @@ const aiTools = [
     text: 'text-blue-600',
     action: 'Create Plan',
     category: 'organize',
+    route: '/ai-tools/tool/study-planner',
   },
   {
     id: 'summarizer',
@@ -46,6 +49,7 @@ const aiTools = [
     text: 'text-amber-600',
     action: 'Summarize Notes',
     category: 'learn',
+    route: '/ai-tools/summarizer',
   },
   {
     id: 'flashcards',
@@ -57,6 +61,7 @@ const aiTools = [
     text: 'text-pink-600',
     action: 'Create Flashcards',
     category: 'practice',
+    route: '/ai-tools/flashcards',
   },
   {
     id: 'doubts',
@@ -68,6 +73,7 @@ const aiTools = [
     text: 'text-yellow-600',
     action: 'Ask Doubt',
     category: 'learn',
+    route: '/ai-tools/tool/doubt-solver',
   },
   {
     id: 'predictor',
@@ -79,6 +85,7 @@ const aiTools = [
     text: 'text-violet-600',
     action: 'Predict Questions',
     category: 'practice',
+    route: '/ai-tools/tool/exam-predictor',
   },
   {
     id: 'essay',
@@ -90,6 +97,7 @@ const aiTools = [
     text: 'text-emerald-600',
     action: 'Start Writing',
     category: 'create',
+    route: '/ai-tools/tool/assignment-helper',
   },
   {
     id: 'eli5',
@@ -101,6 +109,7 @@ const aiTools = [
     text: 'text-orange-600',
     action: 'Simplify Topic',
     category: 'learn',
+    route: '/ai-tools/tool/eli5',
   },
   {
     id: 'formulas',
@@ -112,6 +121,7 @@ const aiTools = [
     text: 'text-cyan-600',
     action: 'Generate Sheet',
     category: 'create',
+    route: '/ai-tools/tool/formula-sheet',
   },
   {
     id: 'voice',
@@ -123,6 +133,7 @@ const aiTools = [
     text: 'text-rose-600',
     action: 'Convert Audio',
     category: 'create',
+    route: '/ai-tools/tool/voice-to-text',
   },
   {
     id: 'lab',
@@ -134,6 +145,7 @@ const aiTools = [
     text: 'text-slate-600',
     action: 'Write Report',
     category: 'create',
+    route: '/ai-tools/tool/lab-report',
   },
 ]
 
@@ -145,100 +157,12 @@ const categories = [
   { id: 'organize', label: 'Organize', icon: 'ri-layout-grid-line' },
 ]
 
-// ─── Chat Modal ───
-function ChatModal({ tool, onClose }) {
-  const [messages, setMessages] = useState([
-    { role: 'ai', text: `Hi! I'm your ${tool.name}. How can I help you today?` }
-  ])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const messagesEndRef = useRef(null)
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return
-    const userMsg = input.trim()
-    setMessages(prev => [...prev, { role: 'user', text: userMsg }])
-    setInput('')
-    setLoading(true)
-
-    try {
-      const res = await sendAIMessage(userMsg)
-      const aiText = res?.reply || res?.response || 'Sorry, I could not generate a response. Please try again.'
-      setMessages(prev => [...prev, { role: 'ai', text: aiText }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'ai', text: 'Something went wrong. Please try again later.' }])
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg h-[70vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className={`flex items-center gap-3 p-4 border-b border-gray-200 bg-gradient-to-r ${tool.color} rounded-t-2xl`}>
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-            <i className={`${tool.icon} text-xl text-white`} />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-white">{tool.name}</h3>
-            <p className="text-xs text-white/80">AI-powered assistant</p>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors">
-            <i className="ri-close-line text-white" />
-          </button>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white rounded-br-md'
-                  : 'bg-gray-100 text-gray-800 rounded-bl-md'
-              }`}>
-                {msg.text}
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex gap-1.5">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex gap-2">
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
-              placeholder={`Ask ${tool.name} anything...`}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || loading}
-              className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shrink-0"
-            >
-              <i className="ri-send-plane-fill" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── Tool Card ───
 function ToolCard({ tool, onLaunch }) {
+  const navigate = useNavigate()
+  
   return (
     <div className="group bg-white rounded-xl border border-gray-200 p-5 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
       <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
@@ -247,7 +171,7 @@ function ToolCard({ tool, onLaunch }) {
       <h3 className="font-semibold text-gray-900 mb-1">{tool.name}</h3>
       <p className="text-sm text-gray-500 mb-4 line-clamp-2">{tool.desc}</p>
       <button
-        onClick={() => onLaunch(tool)}
+        onClick={() => navigate(tool.route)}
         className={`w-full py-2.5 rounded-lg text-sm font-medium bg-gradient-to-r ${tool.color} text-white hover:opacity-90 transition-opacity flex items-center justify-center gap-2`}
       >
         <i className="ri-play-circle-line" />
@@ -260,7 +184,6 @@ function ToolCard({ tool, onLaunch }) {
 // ─── Main Page ───
 export default function AIToolsPage() {
   const [activeCategory, setActiveCategory] = useState('all')
-  const [activeTool, setActiveTool] = useState(null)
   const [search, setSearch] = useState('')
 
   const filteredTools = aiTools.filter(tool => {
@@ -344,7 +267,7 @@ export default function AIToolsPage() {
       {/* Tools Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredTools.map(tool => (
-          <ToolCard key={tool.id} tool={tool} onLaunch={setActiveTool} />
+          <ToolCard key={tool.id} tool={tool} />
         ))}
       </div>
 
@@ -354,9 +277,6 @@ export default function AIToolsPage() {
           <p className="text-gray-500 mt-2">No tools found matching your search.</p>
         </div>
       )}
-
-      {/* Chat Modal */}
-      {activeTool && <ChatModal tool={activeTool} onClose={() => setActiveTool(null)} />}
     </div>
   )
 }
