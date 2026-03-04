@@ -12,7 +12,7 @@ export default function CreateRoomPage() {
     subject: '',
     audio: true,
     video: true,
-    privacy: 'public',
+    scheduledFor: '',
   })
   const [inviteEmail, setInviteEmail] = useState('')
   const [invitedMembers, setInvitedMembers] = useState([])
@@ -20,6 +20,7 @@ export default function CreateRoomPage() {
   const [successModal, setSuccessModal] = useState(false)
   const [errorModal, setErrorModal] = useState({ open: false, message: '' })
   const [createdRoomId, setCreatedRoomId] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const handleAddMember = () => {
     const email = inviteEmail.trim()
@@ -44,9 +45,11 @@ export default function CreateRoomPage() {
       const result = await createRoom({
         name: formData.name,
         subject: formData.subject,
-        privacy: formData.privacy,
+        privacy: 'public',
         audio: formData.audio,
         video: formData.video,
+        scheduledFor: formData.scheduledFor || undefined,
+        invitedMembers: invitedMembers.length > 0 ? invitedMembers : undefined,
       })
       setLoading(false)
       setCreatedRoomId(result.room._id)
@@ -62,6 +65,8 @@ export default function CreateRoomPage() {
 
   const copyUrl = () => {
     navigator.clipboard.writeText(roomUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -144,27 +149,16 @@ export default function CreateRoomPage() {
               </div>
             </div>
 
-            {/* Room Privacy */}
+            {/* Schedule (optional) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">Room Privacy</label>
-              <div className="flex gap-4">
-                {['public', 'private'].map(opt => (
-                  <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${formData.privacy === opt ? 'border-indigo-600' : 'border-gray-300'}`}>
-                      {formData.privacy === opt && <div className="w-2.5 h-2.5 rounded-full bg-indigo-600" />}
-                    </div>
-                    <input
-                      type="radio"
-                      name="privacy"
-                      value={opt}
-                      checked={formData.privacy === opt}
-                      onChange={e => setFormData(prev => ({ ...prev, privacy: e.target.value }))}
-                      className="hidden"
-                    />
-                    <span className="text-sm font-medium text-gray-700 capitalize">{opt}</span>
-                  </label>
-                ))}
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Schedule For (optional)</label>
+              <input
+                type="datetime-local"
+                value={formData.scheduledFor}
+                onChange={e => setFormData(prev => ({ ...prev, scheduledFor: e.target.value }))}
+                className="w-full h-12 px-4 rounded-lg border border-gray-300 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave empty to start the room immediately</p>
             </div>
 
             {/* Invite Members */}
@@ -233,9 +227,9 @@ export default function CreateRoomPage() {
             />
             <button
               onClick={copyUrl}
-              className="px-4 h-10 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+              className={`px-4 h-10 text-sm font-medium rounded-lg transition-colors ${copied ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
             >
-              Copy
+              {copied ? 'Copied!' : 'Copy'}
             </button>
           </div>
           <div className="flex gap-3 justify-center">

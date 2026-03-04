@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
+import { apiRequest } from '../../lib/api'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'ri-dashboard-line' },
@@ -26,11 +27,55 @@ export default function DashboardLayout() {
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user, logout } = useAuth()
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const notifRef = useRef(null)
 
   // Close sidebar on route change in mobile
   useEffect(() => {
     if (isMobile) setSidebarOpen(false)
   }, [isMobile])
+
+  // Fetch unread notification count
+  useEffect(() => {
+    if (!user) return
+    const fetchCount = () => {
+      apiRequest('/api/notifications/unread-count', { method: 'GET' })
+        .then(data => { if (data.ok) setUnreadCount(data.count) })
+        .catch(() => {})
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 30000)
+    return () => clearInterval(interval)
+  }, [user])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const toggleNotifications = async () => {
+    if (!notifOpen) {
+      try {
+        const data = await apiRequest('/api/notifications', { method: 'GET' })
+        if (data.ok) setNotifications(data.notifications || [])
+      } catch {}
+    }
+    setNotifOpen(!notifOpen)
+  }
+
+  const markAllRead = async () => {
+    try {
+      await apiRequest('/api/notifications/read-all', { method: 'PUT' })
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+      setUnreadCount(0)
+    } catch {}
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -131,10 +176,56 @@ export default function DashboardLayout() {
             </div>
           </div>
           <div className="flex items-center gap-1 sm:gap-3 shrink-0">
-            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors relative">
-              <i className="ri-notification-3-line text-lg sm:text-xl text-gray-600" />
-              <span className="absolute top-1.5 sm:top-2 right-1.5 sm:right-2 w-2 h-2 bg-red-500 rounded-full" />
-            </button>
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={toggleNotifications}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors relative"
+              >
+                <i className="ri-notification-3-line text-lg sm:text-xl text-gray-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 sm:top-1.5 right-1 sm:right-1.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between p-3 border-b border-gray-100">
+                    <h4 className="text-sm font-semibold text-gray-900">Notifications</h4>
+                    {unreadCount > 0 && (
+                      <button onClick={markAllRead} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-8">No notifications</p>
+                    ) : (
+                      notifications.slice(0, 15).map(n => (
+                        <div
+                          key={n._id}
+                          onClick={() => {
+                            if (n.roomId) { navigate(`/room/${n.roomId}`); setNotifOpen(false) }
+                          }}
+                          className={`px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${!n.read ? 'bg-indigo-50/50' : ''}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${!n.read ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+                              <i className={`ri-team-line text-sm ${!n.read ? 'text-indigo-600' : 'text-gray-500'}`} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className={`text-sm ${!n.read ? 'font-medium text-gray-900' : 'text-gray-600'}`}>{n.message || n.title}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{new Date(n.createdAt).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors">
               <i className="ri-settings-3-line text-lg sm:text-xl text-gray-600" />
             </button>

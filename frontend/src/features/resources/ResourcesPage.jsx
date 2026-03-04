@@ -284,7 +284,7 @@ function ResourceModal({ resource, folderId, onClose, onSave }) {
 }
 
 // ─── Create/Edit Folder Modal ───
-function FolderModal({ folder, onClose, onSave }) {
+function FolderModal({ folder, parentId, onClose, onSave }) {
   const [formData, setFormData] = useState({
     name: folder?.name || '',
     color: folder?.color || FOLDER_COLORS[0],
@@ -300,7 +300,7 @@ function FolderModal({ folder, onClose, onSave }) {
       if (folder) {
         await resourceApi.updateFolder(folder._id, formData)
       } else {
-        await resourceApi.createFolder(formData)
+        await resourceApi.createFolder({ ...formData, parentId: parentId || null })
       }
       onSave()
     } catch (err) {
@@ -950,7 +950,7 @@ export default function ResourcesPage() {
                     onOpen={handleOpenFolder}
                     onEdit={handleEditFolder}
                     onDelete={handleDeleteFolder}
-                    resourceCount={resources.filter(r => r.folderId === folder._id).length}
+                    resourceCount={folder.resourceCount ?? 0}
                   />
                 ))}
               </div>
@@ -1016,6 +1016,7 @@ export default function ResourcesPage() {
       {showFolderModal && (
         <FolderModal
           folder={editingFolder}
+          parentId={currentFolderId}
           onClose={() => {
             setShowFolderModal(false)
             setEditingFolder(null)

@@ -1,6 +1,8 @@
 import express from 'express'
 import Room from '../models/Room.js'
 import User from '../models/User.js'
+import Notification from '../models/Notification.js'
+import StudySession from '../models/StudySession.js'
 import { authMiddleware } from '../middleware/auth.js'
 
 const router = express.Router()
@@ -8,7 +10,7 @@ const router = express.Router()
 // Create a new room
 router.post('/create', authMiddleware, async (req, res) => {
   try {
-    const { name, subject, privacy, audio, video, scheduledFor } = req.body
+    const { name, subject, privacy, audio, video, scheduledFor, invitedMembers } = req.body
     const userId = req.user._id
     
     const roomData = {
@@ -33,6 +35,22 @@ router.post('/create', authMiddleware, async (req, res) => {
     await User.findByIdAndUpdate(userId, { 
       $push: { createdRooms: room._id, joinedRooms: room._id } 
     })
+
+    // Handle invited members — look up by email and create notifications
+    if (invitedMembers && invitedMembers.length > 0) {
+      const invitedUsers = await User.find({ email: { $in: invitedMembers } })
+      for (const invitedUser of invitedUsers) {
+        // Don't notify self
+        if (String(invitedUser._id) === String(userId)) continue
+        await Notification.create({
+          userId: invitedUser._id,
+          type: 'room_invite',
+          title: 'Room Invitation',
+          message: `${req.user.name} invited you to join "${room.name}"`,
+          roomId: room._id,
+        })
+      }
+    }
     
     res.json({ ok: true, room })
   } catch (err) {
@@ -157,14 +175,46 @@ router.get('/user/stats', authMiddleware, async (req, res) => {
       .sort({ endedAt: -1 })
       .limit(10)
     
-    // Upcoming scheduled sessions
-    const upcomingSessions = await Room.find({
+    // Upcoming scheduled rooms
+    const upcomingRooms = await Room.find({
       participants: userId,
       status: 'scheduled',
       scheduledFor: { $gte: new Date() }
     })
       .populate('createdBy', 'name email')
       .sort({ scheduledFor: 1 })
+    
+    // Also fetch upcoming study sessions from the Schedule page
+    const today = new Date().toISOString().split('T')[0]
+    const upcomingStudySessions = await StudySession.find({
+      userId,
+      status: 'upcoming',
+      date: { $gte: today },
+    }).sort({ date: 1 }).limit(10)
+
+    // Merge both into a single upcoming list
+    const upcomingSessions = [
+      ...upcomingRooms.map(r => ({
+        _id: r._id,
+        name: r.name,
+        subject: r.subject,
+        scheduledFor: r.scheduledFor,
+        participants: r.participants,
+        createdBy: r.createdBy,
+        source: 'room',
+      })),
+      ...upcomingStudySessions.map(s => ({
+        _id: s._id,
+        name: s.title,
+        subject: s.subject,
+        scheduledFor: s.date + (s.time ? `T${s.time}` : 'T00:00'),
+        participants: [],
+        createdBy: { name: 'You' },
+        source: 'schedule',
+        duration: s.duration,
+        type: s.type,
+      })),
+    ].sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor))
     
     // Calculate total study time
     const completedRooms = await Room.find({
@@ -175,11 +225,19 @@ router.get('/user/stats', authMiddleware, async (req, res) => {
     const totalMinutes = completedRooms.reduce((sum, room) => sum + (room.duration || 0), 0)
     const totalHours = Math.round(totalMinutes / 60 * 10) / 10
     
-    // Subject distribution
+    // Subject distribution from ALL rooms user participated in (not just completed)
+    const allUserRooms = await Room.find({
+      $or: [
+        { participants: userId },
+        { createdBy: userId }
+      ]
+    })
+    
     const subjectMap = {}
-    completedRooms.forEach(room => {
+    allUserRooms.forEach(room => {
       if (room.subject) {
-        subjectMap[room.subject] = (subjectMap[room.subject] || 0) + (room.duration || 0)
+        // Use duration for completed rooms, otherwise count as 1 session
+        subjectMap[room.subject] = (subjectMap[room.subject] || 0) + (room.duration || 1)
       }
     })
     

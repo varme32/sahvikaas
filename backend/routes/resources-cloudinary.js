@@ -342,7 +342,22 @@ router.get('/user/folders', authMiddleware, async (req, res) => {
     if (parentId) filter.parentId = parentId === 'null' ? null : parentId
     
     const folders = await Folder.find(filter).sort({ createdAt: -1 })
-    res.json({ ok: true, folders })
+
+    // Get resource counts for each folder
+    const folderIds = folders.map(f => f._id)
+    const counts = await Resource.aggregate([
+      { $match: { userId: req.user._id, folderId: { $in: folderIds } } },
+      { $group: { _id: '$folderId', count: { $sum: 1 } } }
+    ])
+    const countMap = {}
+    counts.forEach(c => { countMap[c._id.toString()] = c.count })
+
+    const foldersWithCounts = folders.map(f => ({
+      ...f.toObject(),
+      resourceCount: countMap[f._id.toString()] || 0,
+    }))
+
+    res.json({ ok: true, folders: foldersWithCounts })
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch folders.' })
   }

@@ -55,12 +55,12 @@ export default function DashboardPage() {
           setTotalSessions(roomStats.totalSessions || 0)
           
           // Subject distribution from room stats
-          if (roomStats.subjectDistribution) {
+          if (roomStats.subjectDistribution && Object.keys(roomStats.subjectDistribution).length > 0) {
             const subjectColors = ['#6366f1', '#14b8a6', '#f97316', '#f43f5e', '#8b5cf6', '#06b6d4', '#eab308', '#ec4899']
             const totalMinutes = Object.values(roomStats.subjectDistribution).reduce((a, b) => a + b, 0) || 1
             const subjects = Object.entries(roomStats.subjectDistribution).map(([name, minutes], i) => ({
               name,
-              value: Math.round((minutes / totalMinutes) * 100),
+              value: Math.max(1, Math.round((minutes / totalMinutes) * 100)),
               color: subjectColors[i % subjectColors.length],
             }))
             setSubjectData(subjects)
@@ -71,7 +71,7 @@ export default function DashboardPage() {
         if (dashData?.ok) {
           setStudyProgressData(dashData.studyProgress || [])
           // If no subject data from rooms, use dashboard data
-          if (!roomStats?.subjectDistribution && dashData.subjectDistribution) {
+          if (!(roomStats?.subjectDistribution && Object.keys(roomStats.subjectDistribution).length > 0) && dashData.subjectDistribution?.length > 0) {
             setSubjectData(dashData.subjectDistribution)
           }
         }
@@ -270,28 +270,39 @@ export default function DashboardPage() {
         {/* Subject Distribution */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-3 sm:p-4">
           <h3 className="font-semibold text-gray-900 mb-4">Subject Distribution</h3>
-          {subjectData.length === 0 ? (
+          {subjectData.filter(s => s.value > 0).length === 0 ? (
             <div className="flex items-center justify-center h-[200px] text-sm text-gray-400">No subject data available</div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={subjectData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={4}
-                  dataKey="value"
-                  label={({ name, value }) => `${name} ${value}%`}
-                >
-                  {subjectData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [`${value}%`]} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div>
+              <ResponsiveContainer width="100%" height={170}>
+                <PieChart>
+                  <Pie
+                    data={subjectData.filter(s => s.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={75}
+                    paddingAngle={3}
+                    dataKey="value"
+                    label={false}
+                  >
+                    {subjectData.filter(s => s.value > 0).map((entry, index) => (
+                      <Cell key={index} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value, name) => [`${value}%`, name]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-2">
+                {subjectData.filter(s => s.value > 0).map((entry, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-gray-700">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                    <span className="truncate max-w-[100px]">{entry.name}</span>
+                    <span className="text-gray-400">{entry.value}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

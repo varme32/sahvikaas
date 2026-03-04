@@ -1,9 +1,9 @@
 import { apiRequest } from './api'
 
-export async function createRoom({ name, subject, privacy, audio, video, scheduledFor }) {
+export async function createRoom({ name, subject, privacy, audio, video, scheduledFor, invitedMembers }) {
   return apiRequest('/api/rooms/create', {
     method: 'POST',
-    body: { name, subject, privacy, audio, video, scheduledFor },
+    body: { name, subject, privacy, audio, video, scheduledFor, invitedMembers },
   })
 }
 

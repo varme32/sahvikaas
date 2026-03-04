@@ -1,7 +1,6 @@
 import { io } from 'socket.io-client'
 
-// Use environment variable for production, fallback to deployed backend
-const SOCKET_URL = import.meta.env.VITE_API_URL || 'https://sahvikaas.onrender.com'
+const SOCKET_URL = 'https://sahvikaas.onrender.com'
 
 let socket = null
 
