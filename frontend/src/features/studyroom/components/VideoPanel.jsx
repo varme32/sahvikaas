@@ -80,12 +80,12 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         }
 
         activeMeetingRef.current = meetingId
-        // Use the shared socket (connected by StudyRoomPage) � do NOT own the socket lifecycle
+        // Use the shared socket (connected by StudyRoomPage) — do NOT own the socket lifecycle
+        // StudyRoomPage already emits join-meeting, so we only set up WebRTC listeners here
         const socket = getSocket()
         if (!socket?.connected) connectSocket()
         socketRef.current = socket || getSocket()
         setupSocketListeners(socketRef.current)
-        socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
         setConnected(true)
         setConnecting(false)
       } catch (err) {

@@ -642,6 +642,30 @@ io.on('connection', (socket) => {
       return
     }
 
+    // If user is already in participants (e.g. re-join from VideoPanel), skip
+    if (room.participants.has(socket.id)) {
+      // Re-send room state in case they need it
+      const existingParticipants = []
+      for (const [sid, p] of room.participants) {
+        if (sid !== socket.id) existingParticipants.push(p)
+      }
+      socket.emit('existing-participants', existingParticipants)
+      socket.emit('room-state', {
+        chatMessages: room.chatMessages.slice(-100),
+        tasks: room.tasks,
+        sharedNotes: room.sharedNotes,
+        resources: room.resources,
+        folders: room.folders,
+        leaderboard: getLeaderboard(room),
+      })
+      return
+    }
+
+    // If user is already in waiting room, don't re-add
+    if (room.waitingRoom.has(socket.id)) {
+      return
+    }
+
     const isHost = userName === room.createdBy
     const isFirstParticipant = room.participants.size === 0
 
@@ -667,36 +691,6 @@ io.on('connection', (socket) => {
       for (const [sid, p] of room.participants) {
         if (sid !== socket.id) existingParticipants.push(p)
       }
-  // Host/admin ends the room for all
-  socket.on('end-room', async ({ meetingId }) => {
-    const room = rooms.get(meetingId)
-    if (!room) return
-    // Only host can end
-    if (socket.userName !== room.createdBy) return
-    room.ended = true
-    io.to(meetingId).emit('room-ended', { message: 'The host has ended this room.' })
-    // Optionally, disconnect all users from the room
-    for (const [sid] of room.participants) {
-      const s = io.sockets.sockets.get(sid)
-      if (s) s.leave(meetingId)
-    }
-    room.participants.clear()
-
-    // Update MongoDB to mark the room as ended
-    try {
-      const dbRoom = await Room.findById(meetingId)
-      if (dbRoom && !dbRoom.ended) {
-        dbRoom.ended = true
-        dbRoom.endedAt = new Date()
-        dbRoom.status = 'completed'
-        dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
-        await dbRoom.save()
-        console.log(`✅ Room ${meetingId} marked as ended in MongoDB via socket`)
-      }
-    } catch (err) {
-      console.error('Failed to update room in MongoDB:', err.message)
-    }
-  })
 
       socket.emit('existing-participants', existingParticipants)
 
@@ -772,6 +766,38 @@ io.on('connection', (socket) => {
       })
 
       console.log(`⏳ ${userName} is waiting to join room ${meetingId}`)
+    }
+  })
+
+  // ─── END ROOM ──────────────────────────────
+  // Host/admin ends the room for all
+  socket.on('end-room', async ({ meetingId }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+    // Only host can end
+    if (socket.userName !== room.createdBy) return
+    room.ended = true
+    io.to(meetingId).emit('room-ended', { message: 'The host has ended this room.' })
+    // Optionally, disconnect all users from the room
+    for (const [sid] of room.participants) {
+      const s = io.sockets.sockets.get(sid)
+      if (s) s.leave(meetingId)
+    }
+    room.participants.clear()
+
+    // Update MongoDB to mark the room as ended
+    try {
+      const dbRoom = await Room.findById(meetingId)
+      if (dbRoom && !dbRoom.ended) {
+        dbRoom.ended = true
+        dbRoom.endedAt = new Date()
+        dbRoom.status = 'completed'
+        dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
+        await dbRoom.save()
+        console.log(`✅ Room ${meetingId} marked as ended in MongoDB via socket`)
+      }
+    } catch (err) {
+      console.error('Failed to update room in MongoDB:', err.message)
     }
   })
 

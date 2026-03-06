@@ -348,27 +348,6 @@ export default function StudyRoomPage() {
     }
   }, [navigate, isHost])
 
-  // Listen for room-ended socket event
-  useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-
-    const handleRoomEnded = (data) => {
-      setHasEnded(true)
-      alert(data.message || 'This room has ended.')
-      // Redirect to rooms page
-      setTimeout(() => {
-        navigate('/rooms')
-      }, 1000)
-    }
-
-    socket.on('room-ended', handleRoomEnded)
-
-    return () => {
-      socket.off('room-ended', handleRoomEnded)
-    }
-  }, [navigate])
-
   // End room (host only)
   const handleEndMeeting = async () => {
     if (!isHost) {
