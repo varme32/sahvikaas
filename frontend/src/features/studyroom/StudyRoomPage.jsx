@@ -85,12 +85,9 @@ export default function StudyRoomPage() {
             owner: data.createdBy?._id || data.createdBy,
             ended: data.ended
           })
-          // If room has ended, redirect to rooms page after 2 seconds
-          if (data.ended) {
-            setTimeout(() => {
-              navigate('/rooms')
-            }, 2000)
-          }
+          // Don't auto-redirect on data.ended — the room may still be alive
+          // in-memory on the server. The socket 'room-ended' event will redirect
+          // if the host explicitly ends the room.
         }
       } catch (err) {
         if (mounted) {
@@ -135,32 +132,38 @@ export default function StudyRoomPage() {
     // camera/mic access fails in VideoPanel. This ensures disconnect cleanup works.
     const socket = getSocket()
     if (socket && meetingIdFromUrl) {
-      const waitForConnect = () => {
+      const emitJoin = () => {
         socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
         // Register in MongoDB so this room appears in user's history
         joinRoom(meetingIdFromUrl).catch(() => {})
       }
       if (socket.connected) {
-        waitForConnect()
+        emitJoin()
       } else {
-        socket.once('connect', waitForConnect)
+        socket.once('connect', emitJoin)
       }
-    }
 
-    // On page close, disconnect socket. The server's disconnect handler cleans up
-    // in-memory room state. We do NOT call the REST end endpoint here because that
-    // removes the user from MongoDB participants, breaking room history.
-    const handlePageHide = () => {
-      disconnectSocket()
-    }
+      // Re-join room on reconnect (socket gets a new ID after reconnect)
+      const handleReconnect = () => {
+        console.log('Socket reconnected, re-joining room...')
+        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
+      }
+      socket.on('connect', handleReconnect)
 
-    window.addEventListener('pagehide', handlePageHide)
-    window.addEventListener('beforeunload', handlePageHide)
+      // On page close, disconnect socket.
+      const handlePageHide = () => {
+        disconnectSocket()
+      }
 
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide)
-      window.removeEventListener('beforeunload', handlePageHide)
-      disconnectSocket()
+      window.addEventListener('pagehide', handlePageHide)
+      window.addEventListener('beforeunload', handlePageHide)
+
+      return () => {
+        socket.off('connect', handleReconnect)
+        window.removeEventListener('pagehide', handlePageHide)
+        window.removeEventListener('beforeunload', handlePageHide)
+        disconnectSocket()
+      }
     }
   }, [meetingIdFromUrl, userName])
 

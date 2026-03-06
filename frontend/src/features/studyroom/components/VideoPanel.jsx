@@ -113,6 +113,33 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     return () => { cancelled = true; cleanup() }
   }, [meetingId])
 
+  // Handle socket reconnection — rebuild all peer connections
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleReconnect = () => {
+      if (!activeMeetingRef.current) return
+      console.log('VideoPanel: socket reconnected, rebuilding peers...')
+      // Close all existing peer connections (they used the old socket ID)
+      for (const [, pc] of peersRef.current) pc.close()
+      peersRef.current.clear()
+      pendingIceRef.current.clear()
+      setParticipants(new Map())
+      // Re-setup listeners and re-join
+      if (socketRef.current) {
+        setupSocketListeners(socketRef.current)
+        socketRef.current.emit('join-meeting', {
+          meetingId: activeMeetingRef.current,
+          userName: userNameRef.current,
+        })
+      }
+    }
+
+    socket.on('connect', handleReconnect)
+    return () => { socket.off('connect', handleReconnect) }
+  }, [setupSocketListeners])
+
   // ========== Sync mic toggle ==========
   useEffect(() => {
     if (localStreamRef.current) {

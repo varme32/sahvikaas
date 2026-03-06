@@ -1210,25 +1210,33 @@ io.on('connection', (socket) => {
 
       console.log(`👤 ${userName} left room ${meetingId} (${room.participants.size} remaining)`)
 
-      // Clean up empty rooms after 10 minutes
+      // When room becomes empty, wait before marking as ended in MongoDB.
+      // This allows users to reconnect after brief network issues without
+      // the room being permanently ended.
       if (room.participants.size === 0) {
-        // Mark room as ended in MongoDB when all participants have left
-        (async () => {
-          try {
-            const dbRoom = await Room.findById(meetingId)
-            if (dbRoom && !dbRoom.ended) {
-              dbRoom.ended = true
-              dbRoom.endedAt = new Date()
-              dbRoom.status = 'completed'
-              dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
-              await dbRoom.save()
-              console.log(`✅ Room ${meetingId} marked as ended in MongoDB (all participants left)`)
+        // Wait 2 minutes before marking room as ended — gives time for reconnect
+        setTimeout(async () => {
+          if (!rooms.has(meetingId)) return
+          const currentRoom = rooms.get(meetingId)
+          // Only end if still empty after the grace period
+          if (currentRoom.participants.size === 0 && !currentRoom.ended) {
+            try {
+              const dbRoom = await Room.findById(meetingId)
+              if (dbRoom && !dbRoom.ended) {
+                dbRoom.ended = true
+                dbRoom.endedAt = new Date()
+                dbRoom.status = 'completed'
+                dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
+                await dbRoom.save()
+                console.log(`✅ Room ${meetingId} marked as ended in MongoDB (empty for 2 min)`)
+              }
+            } catch (err) {
+              console.error('Failed to update room in MongoDB on empty:', err.message)
             }
-          } catch (err) {
-            console.error('Failed to update room in MongoDB on empty:', err.message)
           }
-        })()
+        }, 2 * 60 * 1000) // 2 minute grace period
 
+        // Clean up in-memory room after 10 minutes
         setTimeout(() => {
           if (rooms.has(meetingId) && rooms.get(meetingId).participants.size === 0) {
             rooms.delete(meetingId)
