@@ -94,6 +94,17 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const data = await apiGetMe()
+      if (data.ok && data.user) {
+        setUser(data.user)
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(data.user))
+        sessionStorage.setItem('studyhub-username', data.user.name)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   const value = {
     user,
     loading,
@@ -101,6 +112,7 @@ export function AuthProvider({ children }) {
     login,
     logout,
     updateProfile,
+    refreshUser,
     isAuthenticated: !!user,
   }
 

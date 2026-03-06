@@ -140,10 +140,14 @@ export default function DashboardLayout() {
             onClick={() => { navigate('/profile'); setSidebarOpen(false) }}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-[#e0bd6c] transition-colors"
           >
-            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center">
-              <span className="text-sm font-bold text-black">
-                {user?.name ? user.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : 'U'}
-              </span>
+            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center overflow-hidden">
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-sm font-bold text-black">
+                  {user?.name ? user.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) : 'U'}
+                </span>
+              )}
             </div>
             <div className="text-left min-w-0 flex-1">
               <p className="text-sm font-medium text-black truncate">{user?.name || 'Guest'}</p>
@@ -166,14 +170,6 @@ export default function DashboardLayout() {
                 <i className="ri-menu-line text-xl text-gray-700" />
               </button>
             )}
-            <div className="relative flex-1 max-w-xs sm:max-w-sm lg:max-w-md">
-              <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="w-full h-9 sm:h-10 pl-10 pr-4 rounded-lg border border-gray-200 text-sm text-black placeholder-gray-500 focus:outline-none focus:border-[#F2CF7E] focus:ring-1 focus:ring-[#F2CF7E]"
-              />
-            </div>
           </div>
           <div className="flex items-center gap-1 sm:gap-3 shrink-0">
             <div className="relative" ref={notifRef}>

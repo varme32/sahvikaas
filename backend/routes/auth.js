@@ -1,6 +1,7 @@
 import express from 'express'
 import User from '../models/User.js'
 import { generateToken, authMiddleware } from '../middleware/auth.js'
+import cloudinary, { upload } from '../config/cloudinary.js'
 
 const router = express.Router()
 
@@ -95,6 +96,35 @@ router.put('/profile', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Update profile error:', err)
     res.status(500).json({ error: 'Server error.' })
+  }
+})
+
+// ─── UPLOAD AVATAR ───
+router.post('/avatar', authMiddleware, upload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided.' })
+    }
+
+    const user = await User.findById(req.user._id)
+    if (!user) return res.status(404).json({ error: 'User not found.' })
+
+    // Delete old avatar from Cloudinary if it exists
+    if (user.avatar) {
+      try {
+        const parts = user.avatar.split('/')
+        const publicId = parts.slice(-2).join('/').replace(/\.[^/.]+$/, '')
+        await cloudinary.uploader.destroy(publicId)
+      } catch { /* ignore cleanup errors */ }
+    }
+
+    user.avatar = req.file.path || req.file.secure_url || req.file.url
+    await user.save()
+
+    res.json({ ok: true, user: user.toSafeObject() })
+  } catch (err) {
+    console.error('Avatar upload error:', err)
+    res.status(500).json({ error: 'Server error during avatar upload.' })
   }
 })
 

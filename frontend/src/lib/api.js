@@ -168,6 +168,15 @@ export async function apiUpdateProfile({ name, bio, institution, major }) {
   })
 }
 
+export async function apiUploadAvatar(file) {
+  const formData = new FormData()
+  formData.append('avatar', file)
+  return apiRequest('/api/auth/avatar', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
 // ═══════════════════════════════════════════
 // DASHBOARD API
 // ═══════════════════════════════════════════

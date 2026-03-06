@@ -11,6 +11,8 @@ import TasksPanel from './components/TasksPanel'
 import SettingsModal from './components/SettingsModal'
 import PointsModal from './components/PointsModal'
 import VoiceAssistant from './components/VoiceAssistant'
+import WaitingRoomModal from './components/WaitingRoomModal'
+import WaitingScreen from './components/WaitingScreen'
 
 import { getSocket, connectSocket, disconnectSocket } from '../../lib/socket'
 import { useAuth } from '../../lib/auth'
@@ -25,7 +27,7 @@ const featureTabs = [
   { id: 'tasks', label: 'Tasks', icon: 'ri-calendar-todo-line' },
 ]
 
-// Mobile panel tabs for switching between Video/AI and Features
+// Mobile panel tabs. Video stays visible while AI/features open as overlays.
 const mobilePanelTabs = [
   { id: 'video', label: 'Video', icon: 'ri-vidicon-line' },
   { id: 'ai', label: 'AI Assistant', icon: 'ri-robot-line' },
@@ -127,10 +129,53 @@ export default function StudyRoomPage() {
   // Connect socket when entering the study room, disconnect when leaving
   useEffect(() => {
     connectSocket()
-    return () => {
+
+    // Emit join-meeting at page level so the server tracks this socket even if
+    // camera/mic access fails in VideoPanel. This ensures disconnect cleanup works.
+    const socket = getSocket()
+    if (socket && meetingIdFromUrl) {
+      const waitForConnect = () => {
+        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
+      }
+      if (socket.connected) {
+        waitForConnect()
+      } else {
+        socket.once('connect', waitForConnect)
+      }
+    }
+
+    // On mobile browsers, try to end the room via REST when the page is being closed.
+    // fetch with keepalive works during page unload and supports auth headers.
+    const handlePageHide = () => {
+      const token = localStorage.getItem('studyhub-token')
+      if (token && meetingIdFromUrl) {
+        const apiBase = import.meta.env.VITE_API_URL || ''
+        try {
+          fetch(`${apiBase}/api/rooms/${encodeURIComponent(meetingIdFromUrl)}/end`, {
+            method: 'POST',
+            keepalive: true,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({}),
+          }).catch(() => {})
+        } catch (e) {
+          // fetch not available during unload
+        }
+      }
       disconnectSocket()
     }
-  }, [])
+
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handlePageHide)
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handlePageHide)
+      disconnectSocket()
+    }
+  }, [meetingIdFromUrl, userName])
 
   // Subscribe to socket events for participant count and points
   useEffect(() => {
@@ -172,6 +217,11 @@ export default function StudyRoomPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pointsOpen, setPointsOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [waitingRoomOpen, setWaitingRoomOpen] = useState(false)
+
+  // Waiting room state
+  const [isWaiting, setIsWaiting] = useState(false)
+  const [waitingCount, setWaitingCount] = useState(0)
 
   // === Resizable panels ===
   const [verticalSplit, setVerticalSplit] = useState(50)
@@ -237,16 +287,66 @@ export default function StudyRoomPage() {
     }
   }, [roomInfo, user])
 
-  // Listen for room ended updates (socket or polling)
+  // Listen for room-ended socket event and waiting room events
   useEffect(() => {
-    if (roomInfo && roomInfo.ended) {
+    const socket = getSocket()
+    if (!socket) return
+
+    const handleRoomEnded = (data) => {
       setHasEnded(true)
-      // Redirect to rooms page after 2 seconds
+      alert(data.message || 'This room has ended.')
       setTimeout(() => {
         navigate('/rooms')
-      }, 2000)
+      }, 1000)
     }
-  }, [roomInfo, navigate])
+
+    const handleWaitingForApproval = (data) => {
+      setIsWaiting(true)
+      console.log('Waiting for approval:', data.message)
+    }
+
+    const handleJoinApproved = (data) => {
+      setIsWaiting(false)
+      console.log('Join approved:', data.message)
+    }
+
+    const handleJoinDenied = (data) => {
+      setIsWaiting(false)
+      alert(data.message || 'Your request to join was denied.')
+      navigate('/rooms')
+    }
+
+    const handleParticipantWaiting = (data) => {
+      setWaitingCount(data.waitingList?.length || 0)
+      // Show notification for host
+      if (isHost && data.participant) {
+        // You can add a toast notification here
+        console.log(`🔔 ${data.participant.name} is waiting to join`)
+        // Auto-open waiting room modal for host
+        setWaitingRoomOpen(true)
+      }
+    }
+
+    const handleWaitingListUpdated = (data) => {
+      setWaitingCount(data.waitingList?.length || 0)
+    }
+
+    socket.on('room-ended', handleRoomEnded)
+    socket.on('waiting-for-approval', handleWaitingForApproval)
+    socket.on('join-approved', handleJoinApproved)
+    socket.on('join-denied', handleJoinDenied)
+    socket.on('participant-waiting', handleParticipantWaiting)
+    socket.on('waiting-list-updated', handleWaitingListUpdated)
+
+    return () => {
+      socket.off('room-ended', handleRoomEnded)
+      socket.off('waiting-for-approval', handleWaitingForApproval)
+      socket.off('join-approved', handleJoinApproved)
+      socket.off('join-denied', handleJoinDenied)
+      socket.off('participant-waiting', handleParticipantWaiting)
+      socket.off('waiting-list-updated', handleWaitingListUpdated)
+    }
+  }, [navigate, isHost])
 
   // Listen for room-ended socket event
   useEffect(() => {
@@ -318,6 +418,19 @@ export default function StudyRoomPage() {
     }
   }
 
+  // Show waiting screen if user is waiting for approval
+  if (isWaiting) {
+    return (
+      <WaitingScreen
+        roomName={roomInfo.name || 'Study Room'}
+        onCancel={() => {
+          disconnectSocket()
+          navigate('/rooms')
+        }}
+      />
+    )
+  }
+
   // Effective split values (wider left panel on tablet)
   const effectiveVSplit = isTablet ? Math.max(verticalSplit, 45) : verticalSplit
 
@@ -374,6 +487,24 @@ export default function StudyRoomPage() {
             <i className="ri-coins-line text-black mr-1 lg:mr-1.5 text-sm" />
             <span className="font-semibold text-black text-sm">{totalPoints}</span>
           </div>
+
+          {/* Waiting Room Button (Host Only) */}
+          {isHost && (
+            <button
+              onClick={() => setWaitingRoomOpen(true)}
+              className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                waitingCount > 0 ? 'bg-orange-100 text-orange-600 animate-pulse' : 'bg-white/20 hover:bg-white/30 text-black'
+              }`}
+              title="Waiting Room"
+            >
+              <i className="ri-user-add-line" />
+              {waitingCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold animate-bounce">
+                  {waitingCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={() => setVoiceOpen(v => !v)}
@@ -481,6 +612,21 @@ export default function StudyRoomPage() {
             <i className="ri-coins-line text-black mr-1 text-sm" />
             <span className="font-semibold text-black text-sm">{totalPoints}</span>
           </div>
+          {isHost && (
+            <button
+              onClick={() => { setWaitingRoomOpen(true); setControlsExpanded(false) }}
+              className={`relative w-8 h-8 rounded-full flex items-center justify-center ${
+                waitingCount > 0 ? 'bg-orange-100 text-orange-600 animate-pulse' : 'bg-white/20 hover:bg-white/30 text-black'
+              }`}
+            >
+              <i className="ri-user-add-line text-sm" />
+              {waitingCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold animate-bounce">
+                  {waitingCount}
+                </span>
+              )}
+            </button>
+          )}
           <button
             onClick={() => { setVoiceOpen(v => !v); setControlsExpanded(false) }}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
@@ -508,31 +654,52 @@ export default function StudyRoomPage() {
       {isMobile ? (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Mobile panel content */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {mobilePanel === 'video' && <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />}
-            {mobilePanel === 'ai' && <AIAssistant />}
-            {mobilePanel === 'features' && (
-              <div className="flex flex-col h-full overflow-hidden bg-white">
-                {/* Feature Tabs - scrollable */}
-                <div className="flex border-b border-gray-200 shrink-0 overflow-x-auto bg-gray-50 study-feature-tabs">
-                  {featureTabs.map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveFeature(tab.id)}
-                      className={`flex items-center gap-1 px-3 py-2 text-xs sm:text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                        activeFeature === tab.id
-                          ? 'border-[#F2CF7E] text-black bg-white'
-                          : 'border-transparent text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      <i className={`${tab.icon} text-sm sm:text-base`} />
-                      <span className="hidden xs:inline">{tab.label}</span>
-                    </button>
-                  ))}
+          <div className="flex-1 min-h-0 overflow-hidden relative">
+            <VideoPanel meetingId={meetingIdFromUrl} isMicOn={isMicOn} isVideoOn={isVideoOn} isScreenSharing={isScreenSharing} onScreenShareChange={setIsScreenSharing} userName={userName} />
+
+            {mobilePanel !== 'video' && (
+              <div className="absolute inset-x-0 bottom-0 top-[20%] z-20 bg-white border-t border-gray-200 rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between bg-gray-50 shrink-0">
+                  <h3 className="text-sm font-semibold text-gray-800">
+                    {mobilePanel === 'ai' ? 'AI Assistant' : 'Additional Features'}
+                  </h3>
+                  <button
+                    onClick={() => setMobilePanel('video')}
+                    className="w-8 h-8 rounded-full bg-white border border-gray-200 text-gray-600 flex items-center justify-center"
+                    aria-label="Close panel"
+                  >
+                    <i className="ri-close-line" />
+                  </button>
                 </div>
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {renderFeatureContent()}
-                </div>
+
+                {mobilePanel === 'ai' ? (
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <AIAssistant />
+                  </div>
+                ) : (
+                  <div className="flex flex-col h-full overflow-hidden bg-white">
+                    {/* Feature Tabs - scrollable */}
+                    <div className="flex border-b border-gray-200 shrink-0 overflow-x-auto bg-gray-50 study-feature-tabs">
+                      {featureTabs.map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setActiveFeature(tab.id)}
+                          className={`flex items-center gap-1 px-3 py-2 text-xs sm:text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                            activeFeature === tab.id
+                              ? 'border-[#F2CF7E] text-black bg-white'
+                              : 'border-transparent text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          <i className={`${tab.icon} text-sm sm:text-base`} />
+                          <span className="hidden xs:inline">{tab.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      {renderFeatureContent()}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -622,6 +789,7 @@ export default function StudyRoomPage() {
       {/* Modals */}
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} roomId={meetingIdFromUrl} />
       <PointsModal isOpen={pointsOpen} onClose={() => setPointsOpen(false)} roomId={meetingIdFromUrl} userName={userName} />
+      <WaitingRoomModal isOpen={waitingRoomOpen} onClose={() => setWaitingRoomOpen(false)} roomId={meetingIdFromUrl} />
 
       {/* Voice Assistant */}
       <VoiceAssistant isOpen={voiceOpen} onToggle={() => setVoiceOpen(v => !v)} />

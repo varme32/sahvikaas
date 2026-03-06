@@ -88,8 +88,19 @@ router.post('/:id/end', authMiddleware, async (req, res) => {
     const userId = req.user._id
     const room = await Room.findById(req.params.id)
     if (!room) return res.status(404).json({ error: 'Room not found' })
+    if (room.ended) return res.json({ ok: true, room }) // Already ended
     if (String(room.createdBy) !== String(userId)) {
-      return res.status(403).json({ error: 'Only host can end the room' })
+      // Non-host: just remove them from participants
+      room.participants = room.participants.filter(p => String(p) !== String(userId))
+      // If no participants remain, auto-end the room
+      if (room.participants.length === 0) {
+        room.ended = true
+        room.endedAt = new Date()
+        room.status = 'completed'
+        room.duration = Math.round((room.endedAt - room.createdAt) / 60000)
+      }
+      await room.save()
+      return res.json({ ok: true, room })
     }
     
     room.ended = true

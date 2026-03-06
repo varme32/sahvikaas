@@ -35,7 +35,13 @@ export default function StudyAssistant() {
       setMessages([...newMessages, { role: 'ai', content: res.response }])
     } catch (error) {
       console.error('AI Error:', error)
-      setMessages([...newMessages, { role: 'ai', content: 'Sorry, something went wrong. Please try again.' }])
+      const isQuota = error.message?.includes('quota') || error.message?.includes('429')
+      setMessages([...newMessages, { 
+        role: 'ai', 
+        content: isQuota 
+          ? 'AI quota limit reached. Please wait a minute and try again.' 
+          : 'Sorry, something went wrong. Please try again.' 
+      }])
     }
     setLoading(false)
   }

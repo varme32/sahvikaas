@@ -29,6 +29,33 @@ dotenv.config()
 // Connect to MongoDB
 connectDB()
 
+// Periodic cleanup: mark stale active rooms as completed
+// Rooms active for more than 12 hours with no real activity are likely abandoned
+setInterval(async () => {
+  try {
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000)
+    const staleRooms = await Room.updateMany(
+      {
+        status: 'active',
+        ended: false,
+        createdAt: { $lt: twelveHoursAgo },
+      },
+      {
+        $set: {
+          ended: true,
+          status: 'completed',
+          endedAt: new Date(),
+        },
+      }
+    )
+    if (staleRooms.modifiedCount > 0) {
+      console.log(`🧹 Auto-ended ${staleRooms.modifiedCount} stale rooms (older than 12h)`)
+    }
+  } catch (err) {
+    console.error('Stale room cleanup error:', err.message)
+  }
+}, 5 * 60 * 1000) // Run every 5 minutes
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -75,6 +102,7 @@ function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
       createdAt: new Date().toISOString(),
       ended: false, // new flag
       participants: new Map(),
+      waitingRoom: new Map(), // waiting participants
       chatMessages: [],
       tasks: [],
       sharedNotes: [],
@@ -549,6 +577,7 @@ app.post('/api/meetings/create', (req, res) => {
 // Get active rooms list
 app.get('/api/meetings', (req, res) => {
   const activeRooms = Array.from(rooms.values())
+    .filter(room => !room.ended)
     .map(room => ({
       id: room.id,
       name: room.name,
@@ -612,28 +641,34 @@ io.on('connection', (socket) => {
       socket.emit('room-ended', { message: 'This room has been ended by the host.' })
       return
     }
-    const participant = {
-      id: socket.id,
-      name: userName,
-      socketId: socket.id,
-      joinedAt: new Date().toISOString(),
-      audioOn: true,
-      videoOn: true,
-      isHost: userName === room.createdBy,
-    }
-    room.participants.set(socket.id, participant)
 
-    socket.join(meetingId)
-    socket.meetingId = meetingId
-    socket.userName = userName
+    const isHost = userName === room.createdBy
+    const isFirstParticipant = room.participants.size === 0
 
-    // Send FULL room state to the new joiner for session initialization
-    const existingParticipants = []
-    for (const [sid, p] of room.participants) {
-      if (sid !== socket.id) existingParticipants.push(p)
-    }
+    // If user is host or first participant, let them join directly
+    if (isHost || isFirstParticipant) {
+      const participant = {
+        id: socket.id,
+        name: userName,
+        socketId: socket.id,
+        joinedAt: new Date().toISOString(),
+        audioOn: true,
+        videoOn: true,
+        isHost: isHost,
+      }
+      room.participants.set(socket.id, participant)
+
+      socket.join(meetingId)
+      socket.meetingId = meetingId
+      socket.userName = userName
+
+      // Send FULL room state to the new joiner for session initialization
+      const existingParticipants = []
+      for (const [sid, p] of room.participants) {
+        if (sid !== socket.id) existingParticipants.push(p)
+      }
   // Host/admin ends the room for all
-  socket.on('end-room', ({ meetingId }) => {
+  socket.on('end-room', async ({ meetingId }) => {
     const room = rooms.get(meetingId)
     if (!room) return
     // Only host can end
@@ -646,50 +681,244 @@ io.on('connection', (socket) => {
       if (s) s.leave(meetingId)
     }
     room.participants.clear()
+
+    // Update MongoDB to mark the room as ended
+    try {
+      const dbRoom = await Room.findById(meetingId)
+      if (dbRoom && !dbRoom.ended) {
+        dbRoom.ended = true
+        dbRoom.endedAt = new Date()
+        dbRoom.status = 'completed'
+        dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
+        await dbRoom.save()
+        console.log(`✅ Room ${meetingId} marked as ended in MongoDB via socket`)
+      }
+    } catch (err) {
+      console.error('Failed to update room in MongoDB:', err.message)
+    }
   })
 
-    socket.emit('existing-participants', existingParticipants)
+      socket.emit('existing-participants', existingParticipants)
 
-    // Send room collaboration state to the joiner
-    socket.emit('room-state', {
-      chatMessages: room.chatMessages.slice(-100),
-      tasks: room.tasks,
-      sharedNotes: room.sharedNotes,
-      resources: room.resources,
-      folders: room.folders,
-      leaderboard: getLeaderboard(room),
-    })
+      // Send room collaboration state to the joiner
+      socket.emit('room-state', {
+        chatMessages: room.chatMessages.slice(-100),
+        tasks: room.tasks,
+        sharedNotes: room.sharedNotes,
+        resources: room.resources,
+        folders: room.folders,
+        leaderboard: getLeaderboard(room),
+      })
+
+      // Notify others about the new user
+      socket.to(meetingId).emit('user-joined', participant)
+
+      // Broadcast updated participant list to everyone in the room
+      io.to(meetingId).emit('participants-updated', getParticipantsList(room))
+
+      // Sync participant count with MongoDB (if room exists in DB)
+      syncParticipantCount(meetingId, room.participants.size).catch(err => {
+        console.log('Note: Room not in MongoDB (in-memory only)')
+      })
+
+      // Add a system chat message
+      const joinMsg = {
+        id: uuidv4(),
+        type: 'system',
+        content: `${userName} joined the room`,
+        timestamp: Date.now(),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }
+      room.chatMessages.push(joinMsg)
+      io.to(meetingId).emit('chat-message', joinMsg)
+
+      // Award points for joining
+      awardPoints(room, userName, 5, 'Joined study room')
+      io.to(meetingId).emit('points-updated', {
+        leaderboard: getLeaderboard(room),
+        userPoints: room.points.get(userName),
+      })
+
+      console.log(`👤 ${userName} joined room ${meetingId} (${room.participants.size} participants)`)
+    } else {
+      // Put user in waiting room
+      const waitingParticipant = {
+        id: socket.id,
+        name: userName,
+        socketId: socket.id,
+        requestedAt: new Date().toISOString(),
+      }
+      room.waitingRoom.set(socket.id, waitingParticipant)
+
+      socket.meetingId = meetingId
+      socket.userName = userName
+
+      // Notify user they're in waiting room
+      socket.emit('waiting-for-approval', {
+        message: 'Waiting for host approval...',
+        roomName: room.name,
+      })
+
+      // Notify host about the waiting participant
+      const hostSockets = Array.from(room.participants.values())
+        .filter(p => p.isHost)
+        .map(p => p.socketId)
+
+      hostSockets.forEach(hostSocketId => {
+        io.to(hostSocketId).emit('participant-waiting', {
+          participant: waitingParticipant,
+          waitingList: Array.from(room.waitingRoom.values()),
+        })
+      })
+
+      console.log(`⏳ ${userName} is waiting to join room ${meetingId}`)
+    }
+  })
+
+  // ─── APPROVE PARTICIPANT ────────────────────
+  socket.on('approve-participant', ({ meetingId, socketId }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    // Check if requester is host
+    const requester = room.participants.get(socket.id)
+    if (!requester || !requester.isHost) {
+      socket.emit('error', { message: 'Only the host can approve participants' })
+      return
+    }
+
+    const waitingParticipant = room.waitingRoom.get(socketId)
+    if (!waitingParticipant) return
+
+    // Move from waiting room to participants
+    room.waitingRoom.delete(socketId)
+
+    const participant = {
+      id: socketId,
+      name: waitingParticipant.name,
+      socketId: socketId,
+      joinedAt: new Date().toISOString(),
+      audioOn: true,
+      videoOn: true,
+      isHost: false,
+    }
+    room.participants.set(socketId, participant)
+
+    // Notify the approved user
+    const approvedSocket = io.sockets.sockets.get(socketId)
+    if (approvedSocket) {
+      approvedSocket.join(meetingId)
+
+      // Send existing participants
+      const existingParticipants = []
+      for (const [sid, p] of room.participants) {
+        if (sid !== socketId) existingParticipants.push(p)
+      }
+      approvedSocket.emit('existing-participants', existingParticipants)
+
+      // Send room state
+      approvedSocket.emit('room-state', {
+        chatMessages: room.chatMessages.slice(-100),
+        tasks: room.tasks,
+        sharedNotes: room.sharedNotes,
+        resources: room.resources,
+        folders: room.folders,
+        leaderboard: getLeaderboard(room),
+      })
+
+      approvedSocket.emit('join-approved', { message: 'You have been admitted to the room' })
+    }
 
     // Notify others about the new user
     socket.to(meetingId).emit('user-joined', participant)
 
-    // Broadcast updated participant list to everyone in the room
+    // Broadcast updated participant list
     io.to(meetingId).emit('participants-updated', getParticipantsList(room))
 
-    // Sync participant count with MongoDB (if room exists in DB)
-    syncParticipantCount(meetingId, room.participants.size).catch(err => {
-      console.log('Note: Room not in MongoDB (in-memory only)')
-    })
+    // Sync participant count with MongoDB
+    syncParticipantCount(meetingId, room.participants.size).catch(() => {})
 
-    // Add a system chat message
+    // Add system message
     const joinMsg = {
       id: uuidv4(),
       type: 'system',
-      content: `${userName} joined the room`,
+      content: `${waitingParticipant.name} joined the room`,
       timestamp: Date.now(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
     room.chatMessages.push(joinMsg)
     io.to(meetingId).emit('chat-message', joinMsg)
 
-    // Award points for joining
-    awardPoints(room, userName, 5, 'Joined study room')
+    // Award points
+    awardPoints(room, waitingParticipant.name, 5, 'Joined study room')
     io.to(meetingId).emit('points-updated', {
       leaderboard: getLeaderboard(room),
-      userPoints: room.points.get(userName),
+      userPoints: room.points.get(waitingParticipant.name),
     })
 
-    console.log(`👤 ${userName} joined room ${meetingId} (${room.participants.size} participants)`)
+    // Update waiting list for host
+    const hostSockets = Array.from(room.participants.values())
+      .filter(p => p.isHost)
+      .map(p => p.socketId)
+
+    hostSockets.forEach(hostSocketId => {
+      io.to(hostSocketId).emit('waiting-list-updated', {
+        waitingList: Array.from(room.waitingRoom.values()),
+      })
+    })
+
+    console.log(`✅ ${waitingParticipant.name} approved to join room ${meetingId}`)
+  })
+
+  // ─── DENY PARTICIPANT ───────────────────────
+  socket.on('deny-participant', ({ meetingId, socketId }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    // Check if requester is host
+    const requester = room.participants.get(socket.id)
+    if (!requester || !requester.isHost) {
+      socket.emit('error', { message: 'Only the host can deny participants' })
+      return
+    }
+
+    const waitingParticipant = room.waitingRoom.get(socketId)
+    if (!waitingParticipant) return
+
+    // Remove from waiting room
+    room.waitingRoom.delete(socketId)
+
+    // Notify the denied user
+    const deniedSocket = io.sockets.sockets.get(socketId)
+    if (deniedSocket) {
+      deniedSocket.emit('join-denied', { message: 'The host denied your request to join' })
+    }
+
+    // Update waiting list for host
+    const hostSockets = Array.from(room.participants.values())
+      .filter(p => p.isHost)
+      .map(p => p.socketId)
+
+    hostSockets.forEach(hostSocketId => {
+      io.to(hostSocketId).emit('waiting-list-updated', {
+        waitingList: Array.from(room.waitingRoom.values()),
+      })
+    })
+
+    console.log(`❌ ${waitingParticipant.name} denied entry to room ${meetingId}`)
+  })
+
+  // ─── GET WAITING LIST ───────────────────────
+  socket.on('get-waiting-list', ({ meetingId }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    const requester = room.participants.get(socket.id)
+    if (!requester || !requester.isHost) return
+
+    socket.emit('waiting-list-updated', {
+      waitingList: Array.from(room.waitingRoom.values()),
+    })
   })
 
   // ─── WEBRTC SIGNALING ───────────────────────
@@ -913,6 +1142,27 @@ io.on('connection', (socket) => {
     const { meetingId, userName } = socket
     if (meetingId && rooms.has(meetingId)) {
       const room = rooms.get(meetingId)
+      
+      // Check if user was in waiting room
+      if (room.waitingRoom.has(socket.id)) {
+        room.waitingRoom.delete(socket.id)
+        
+        // Update waiting list for host
+        const hostSockets = Array.from(room.participants.values())
+          .filter(p => p.isHost)
+          .map(p => p.socketId)
+
+        hostSockets.forEach(hostSocketId => {
+          io.to(hostSocketId).emit('waiting-list-updated', {
+            waitingList: Array.from(room.waitingRoom.values()),
+          })
+        })
+        
+        console.log(`⏳ ${userName} left waiting room ${meetingId}`)
+        return
+      }
+      
+      // User was in the room
       room.participants.delete(socket.id)
 
       socket.to(meetingId).emit('user-left', { id: socket.id })
@@ -935,6 +1185,23 @@ io.on('connection', (socket) => {
 
       // Clean up empty rooms after 10 minutes
       if (room.participants.size === 0) {
+        // Mark room as ended in MongoDB when all participants have left
+        (async () => {
+          try {
+            const dbRoom = await Room.findById(meetingId)
+            if (dbRoom && !dbRoom.ended) {
+              dbRoom.ended = true
+              dbRoom.endedAt = new Date()
+              dbRoom.status = 'completed'
+              dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
+              await dbRoom.save()
+              console.log(`✅ Room ${meetingId} marked as ended in MongoDB (all participants left)`)
+            }
+          } catch (err) {
+            console.error('Failed to update room in MongoDB on empty:', err.message)
+          }
+        })()
+
         setTimeout(() => {
           if (rooms.has(meetingId) && rooms.get(meetingId).participants.size === 0) {
             rooms.delete(meetingId)
