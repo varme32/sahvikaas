@@ -93,8 +93,18 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       } catch (err) {
         if (!cancelled) {
           console.error('Video connect error:', err)
-          setError('Camera/mic access denied. Please allow permissions.')
+          setError('Camera/mic access denied. You can still see others.')
           setConnecting(false)
+
+          // Even without camera/mic, set up socket listeners so we can
+          // receive remote video and participate in the room
+          activeMeetingRef.current = meetingId
+          const socket = getSocket()
+          if (!socket?.connected) connectSocket()
+          socketRef.current = socket || getSocket()
+          setupSocketListeners(socketRef.current)
+          socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
+          setConnected(true)
         }
       }
     }
@@ -206,6 +216,8 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
     socket.on('existing-participants', async (existingUsers) => {
       for (const user of existingUsers) {
+        // Skip if we already have a peer connection (avoid duplicate offers)
+        if (peersRef.current.has(user.socketId)) continue
         const pc = createPeerConnection(user.socketId, user.name)
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
@@ -214,6 +226,8 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     })
 
     socket.on('user-joined', (user) => {
+      // Skip if it's ourselves (we handle our own video locally)
+      if (user.socketId === socket.id) return
       setParticipants(prev => {
         const next = new Map(prev)
         next.set(user.socketId, { name: user.name, stream: null, audioOn: true, videoOn: true })

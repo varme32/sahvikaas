@@ -855,8 +855,9 @@ io.on('connection', (socket) => {
       approvedSocket.emit('join-approved', { message: 'You have been admitted to the room' })
     }
 
-    // Notify others about the new user
-    socket.to(meetingId).emit('user-joined', participant)
+    // Notify ALL users in the room about the new participant (including the host)
+    // so everyone's VideoPanel shows the new user and can initiate WebRTC
+    io.to(meetingId).emit('user-joined', participant)
 
     // Broadcast updated participant list
     io.to(meetingId).emit('participants-updated', getParticipantsList(room))
