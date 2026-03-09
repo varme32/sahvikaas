@@ -514,7 +514,7 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
 
           {/* Remote participants */}
           {[...participants.entries()].map(([peerId, participant]) => (
-            <RemoteVideo key={peerId} participant={participant} peerId={peerId} />
+            <RemoteVideo key={peerId} participant={participant} peerId={peerId} viewerIsMobile={isMobileDevice} />
           ))}
         </div>
       </div>
@@ -522,7 +522,7 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
   )
 }
 
-function RemoteVideo({ participant, peerId }) {
+function RemoteVideo({ participant, peerId, viewerIsMobile }) {
   const videoRef = useRef(null)
   const [videoPlaying, setVideoPlaying] = useState(false)
 
@@ -548,9 +548,8 @@ function RemoteVideo({ participant, peerId }) {
 
   const hasStream = !!participant.stream
   const showVideo = hasStream && participant.videoOn !== false
-  // Only flip when the SENDER is on mobile — mobile front cameras send a mirrored
-  // raw feed over WebRTC. The viewer's device doesn't matter.
-  const needsFlip = !!participant.isMobile
+  // XOR: flip when exactly one side is mobile
+  const needsFlip = !!participant.isMobile !== !!viewerIsMobile
 
   return (
     <div className="relative rounded-xl overflow-hidden bg-gray-800 w-full h-full" style={{ aspectRatio: '16/9', maxHeight: '100%', maxWidth: '100%' }}>
