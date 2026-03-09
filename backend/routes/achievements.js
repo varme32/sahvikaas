@@ -8,16 +8,16 @@ const router = express.Router()
 
 // Badge definitions (static, same for everyone)
 const BADGE_DEFINITIONS = [
-  { id: 1, name: 'Study Champion', desc: 'Complete 50 study sessions', icon: 'ri-medal-line', color: 'from-indigo-500 to-purple-500', bg: 'bg-indigo-50', text: 'text-indigo-600', target: 50, unit: 'sessions' },
-  { id: 2, name: 'Focus Master', desc: 'Maintain focus for 100 hours', icon: 'ri-focus-3-line', color: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', text: 'text-amber-600', target: 100, unit: 'hours' },
-  { id: 3, name: 'Knowledge Seeker', desc: 'Complete 25 different subjects', icon: 'ri-book-open-line', color: 'from-teal-500 to-emerald-500', bg: 'bg-teal-50', text: 'text-teal-600', target: 25, unit: 'subjects' },
-  { id: 4, name: 'Collaboration Star', desc: 'Join 30 study groups', icon: 'ri-team-line', color: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', text: 'text-pink-600', target: 30, unit: 'groups' },
-  { id: 5, name: 'Streak Master', desc: 'Maintain a 30-day study streak', icon: 'ri-fire-line', color: 'from-red-500 to-orange-500', bg: 'bg-red-50', text: 'text-red-600', target: 30, unit: 'days' },
-  { id: 6, name: 'Innovation Pioneer', desc: 'Create 10 study materials', icon: 'ri-lightbulb-line', color: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', text: 'text-yellow-600', target: 10, unit: 'materials' },
-  { id: 7, name: 'Quiz Whiz', desc: 'Score 90%+ in 20 quizzes', icon: 'ri-question-answer-line', color: 'from-blue-500 to-cyan-500', bg: 'bg-blue-50', text: 'text-blue-600', target: 20, unit: 'quizzes' },
-  { id: 8, name: 'Note Ninja', desc: 'Upload 15 quality notes', icon: 'ri-sticky-note-line', color: 'from-violet-500 to-purple-500', bg: 'bg-violet-50', text: 'text-violet-600', target: 15, unit: 'notes' },
-  { id: 9, name: 'Early Bird', desc: 'Attend 30 morning sessions', icon: 'ri-sun-line', color: 'from-orange-400 to-yellow-400', bg: 'bg-orange-50', text: 'text-orange-600', target: 30, unit: 'sessions' },
-  { id: 10, name: 'Night Owl', desc: 'Study 50 late-night hours', icon: 'ri-moon-line', color: 'from-slate-600 to-indigo-700', bg: 'bg-slate-50', text: 'text-slate-600', target: 50, unit: 'hours' },
+  { id: 1, name: 'Study Champion', desc: 'Complete 50 study sessions', icon: 'ri-medal-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 50, unit: 'sessions' },
+  { id: 2, name: 'Focus Master', desc: 'Maintain focus for 100 hours', icon: 'ri-focus-3-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 100, unit: 'hours' },
+  { id: 3, name: 'Knowledge Seeker', desc: 'Complete 25 different subjects', icon: 'ri-book-open-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 25, unit: 'subjects' },
+  { id: 4, name: 'Collaboration Star', desc: 'Join 30 study groups', icon: 'ri-team-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 30, unit: 'groups' },
+  { id: 5, name: 'Streak Master', desc: 'Maintain a 30-day study streak', icon: 'ri-fire-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 30, unit: 'days' },
+  { id: 6, name: 'Innovation Pioneer', desc: 'Create 10 study materials', icon: 'ri-lightbulb-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 10, unit: 'materials' },
+  { id: 7, name: 'Quiz Whiz', desc: 'Score 90%+ in 20 quizzes', icon: 'ri-question-answer-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 20, unit: 'quizzes' },
+  { id: 8, name: 'Note Ninja', desc: 'Upload 15 quality notes', icon: 'ri-sticky-note-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 15, unit: 'notes' },
+  { id: 9, name: 'Early Bird', desc: 'Attend 30 morning sessions', icon: 'ri-sun-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 30, unit: 'sessions' },
+  { id: 10, name: 'Night Owl', desc: 'Study 50 late-night hours', icon: 'ri-moon-line', color: 'from-[#F2CF7E] to-[#e0bd6c]', bg: 'bg-[#F2CF7E]/10', text: 'text-black', target: 50, unit: 'hours' },
 ]
 
 // ─── Get badges with user progress ───

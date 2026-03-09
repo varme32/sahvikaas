@@ -1,7 +1,6 @@
 import express from 'express'
 import multer from 'multer'
 import pdfParse from 'pdf-parse'
-import { authMiddleware } from '../middleware/auth.js'
 
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage() })
@@ -65,7 +64,7 @@ function handleAIError(error, res, action = 'get AI response') {
 }
 
 // ─── Study Assistant ───
-router.post('/assistant', authMiddleware, async (req, res) => {
+router.post('/assistant', async (req, res) => {
   try {
     const { message, history = [] } = req.body
     
@@ -91,7 +90,7 @@ router.post('/assistant', authMiddleware, async (req, res) => {
 })
 
 // ─── Quiz Generator ───
-router.post('/quiz', authMiddleware, upload.single('pdf'), async (req, res) => {
+router.post('/quiz', upload.single('pdf'), async (req, res) => {
   try {
     const { topic, numQuestions = 10, difficulty = 'medium' } = req.body
     let content = topic
@@ -122,9 +121,10 @@ Format as JSON array:
 })
 
 // ─── Study Plan Creator ───
-router.post('/study-plan', authMiddleware, async (req, res) => {
+router.post('/study-plan', async (req, res) => {
   try {
     const { exams, hoursPerDay, subjects } = req.body
+    
     const prompt = `Create a detailed weekly study plan:
 - Exams: ${JSON.stringify(exams)}
 - Available hours per day: ${hoursPerDay}
@@ -149,7 +149,7 @@ Format as JSON:
 })
 
 // ─── Notes Summarizer ───
-router.post('/summarize', authMiddleware, upload.single('pdf'), async (req, res) => {
+router.post('/summarize', upload.single('pdf'), async (req, res) => {
   try {
     const { notes } = req.body
     let content = notes
@@ -183,9 +183,10 @@ Format:
 })
 
 // ─── Flashcard Generator ───
-router.post('/flashcards', authMiddleware, async (req, res) => {
+router.post('/flashcards', async (req, res) => {
   try {
     const { topic, content, count = 10 } = req.body
+    
     const prompt = `Generate ${count} flashcards for: ${topic}
 ${content ? `Content: ${content.substring(0, 3000)}` : ''}
 
@@ -207,7 +208,7 @@ Format as JSON array:
 })
 
 // ─── Doubt Solver ───
-router.post('/doubt-solver', authMiddleware, async (req, res) => {
+router.post('/doubt-solver', async (req, res) => {
   try {
     const { question, subject } = req.body
     
@@ -230,7 +231,7 @@ Provide:
 })
 
 // ─── Exam Predictor ───
-router.post('/exam-predictor', authMiddleware, async (req, res) => {
+router.post('/exam-predictor', async (req, res) => {
   try {
     const { subject, topics, examType } = req.body
     
@@ -259,7 +260,7 @@ Format as JSON:
 })
 
 // ─── Assignment Helper ───
-router.post('/assignment', authMiddleware, async (req, res) => {
+router.post('/assignment', async (req, res) => {
   try {
     const { topic, requirements, wordCount, stage } = req.body
     
@@ -292,7 +293,7 @@ Suggest improvements for: clarity, structure, grammar, academic tone`
 })
 
 // ─── Explain Like I'm 5 ───
-router.post('/eli5', authMiddleware, async (req, res) => {
+router.post('/eli5', async (req, res) => {
   try {
     const { topic, complexity = 5 } = req.body
     
@@ -321,7 +322,7 @@ Use:
 })
 
 // ─── Formula Sheet Generator ───
-router.post('/formula-sheet', authMiddleware, async (req, res) => {
+router.post('/formula-sheet', async (req, res) => {
   try {
     const { subject, topics } = req.body
     
@@ -346,7 +347,7 @@ Format in organized sections with clear headings`
 })
 
 // ─── Voice Notes to Text ───
-router.post('/voice-to-text', authMiddleware, async (req, res) => {
+router.post('/voice-to-text', async (req, res) => {
   try {
     const { transcript, subject } = req.body
     
@@ -375,7 +376,7 @@ Include:
 })
 
 // ─── Lab Report Writer ───
-router.post('/lab-report', authMiddleware, async (req, res) => {
+router.post('/lab-report', async (req, res) => {
   try {
     const { experimentType, observations, data } = req.body
     

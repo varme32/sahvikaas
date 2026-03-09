@@ -6,7 +6,6 @@ const toolConfigs = {
   'study-planner': {
     name: 'Study Plan Creator',
     icon: 'ri-calendar-todo-line',
-    color: 'from-blue-500 to-cyan-500',
     endpoint: '/api/ai/study-plan',
     fields: [
       { name: 'exams', label: 'Upcoming Exams (JSON format)', type: 'textarea', placeholder: '[{"name": "Math Final", "date": "2026-03-15"}]' },
@@ -17,7 +16,6 @@ const toolConfigs = {
   'doubt-solver': {
     name: 'Doubt Solver',
     icon: 'ri-lightbulb-line',
-    color: 'from-yellow-500 to-amber-500',
     endpoint: '/api/ai/doubt-solver',
     fields: [
       { name: 'question', label: 'Your Question', type: 'textarea', placeholder: 'Enter your doubt or question here...' },
@@ -27,7 +25,6 @@ const toolConfigs = {
   'exam-predictor': {
     name: 'Exam Predictor',
     icon: 'ri-bar-chart-grouped-line',
-    color: 'from-violet-500 to-purple-500',
     endpoint: '/api/ai/exam-predictor',
     fields: [
       { name: 'subject', label: 'Subject', type: 'text', placeholder: 'e.g., Biology' },
@@ -38,7 +35,6 @@ const toolConfigs = {
   'assignment-helper': {
     name: 'Assignment Helper',
     icon: 'ri-edit-2-line',
-    color: 'from-emerald-500 to-green-500',
     endpoint: '/api/ai/assignment',
     fields: [
       { name: 'topic', label: 'Assignment Topic', type: 'text', placeholder: 'e.g., Climate Change Impact' },
@@ -50,7 +46,6 @@ const toolConfigs = {
   'eli5': {
     name: 'Explain Like I\'m 5',
     icon: 'ri-emotion-happy-line',
-    color: 'from-orange-500 to-red-500',
     endpoint: '/api/ai/eli5',
     fields: [
       { name: 'topic', label: 'Topic to Explain', type: 'text', placeholder: 'e.g., Quantum Physics, Blockchain' },
@@ -60,7 +55,6 @@ const toolConfigs = {
   'formula-sheet': {
     name: 'Formula Sheet Generator',
     icon: 'ri-functions',
-    color: 'from-cyan-500 to-blue-500',
     endpoint: '/api/ai/formula-sheet',
     fields: [
       { name: 'subject', label: 'Subject', type: 'text', placeholder: 'e.g., Physics, Calculus' },
@@ -70,7 +64,6 @@ const toolConfigs = {
   'voice-to-text': {
     name: 'Voice Notes to Text',
     icon: 'ri-mic-line',
-    color: 'from-rose-500 to-pink-500',
     endpoint: '/api/ai/voice-to-text',
     fields: [
       { name: 'transcript', label: 'Voice Transcript', type: 'textarea', placeholder: 'Paste your voice transcript here...' },
@@ -80,7 +73,6 @@ const toolConfigs = {
   'lab-report': {
     name: 'Lab Report Writer',
     icon: 'ri-test-tube-line',
-    color: 'from-slate-500 to-gray-600',
     endpoint: '/api/ai/lab-report',
     fields: [
       { name: 'experimentType', label: 'Experiment Type', type: 'text', placeholder: 'e.g., Titration, Pendulum' },
@@ -100,16 +92,21 @@ export default function GenericTool() {
   const [loading, setLoading] = useState(false)
 
   if (!config) {
-    return <div className="p-6">Tool not found</div>
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <i className="ri-error-warning-line text-5xl text-gray-400 mb-4" />
+          <p className="text-gray-600">Tool not found</p>
+        </div>
+      </div>
+    )
   }
 
   const handleSubmit = async () => {
     setLoading(true)
     try {
-      // Process form data
       const processedData = { ...formData }
       
-      // Parse JSON fields if needed
       if (formData.exams) {
         try { processedData.exams = JSON.parse(formData.exams) } catch {}
       }
@@ -128,7 +125,6 @@ export default function GenericTool() {
         body: processedData
       })
       
-      // Extract result from various response formats
       setResult(res.content || res.solution || res.explanation || res.formulaSheet || 
                 res.notes || res.report || JSON.stringify(res, null, 2))
     } catch (error) {
@@ -138,88 +134,154 @@ export default function GenericTool() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-      <div className="max-w-6xl mx-auto p-4 sm:p-6">
-        <div className="flex items-center gap-4 mb-6">
-          <button onClick={() => navigate('/ai-tools')} className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50">
-            <i className="ri-arrow-left-line text-xl" />
+    <div className="space-y-6">
+      {/* Header Section - Full Width */}
+      <div className="bg-[#F2CF7E] border-y border-[#e0bd6c] py-6 -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6 shadow-sm">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <button onClick={() => navigate('/ai-tools')} className="w-10 h-10 rounded-lg bg-black/10 hover:bg-black/20 flex items-center justify-center transition-colors">
+            <i className="ri-arrow-left-line text-xl text-black" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900">{config.name}</h1>
+          <div className="text-center flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-black">{config.name}</h1>
+            <p className="text-sm text-black/80 mt-1">AI-powered tool for your studies</p>
           </div>
-          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${config.color} flex items-center justify-center`}>
-            <i className={`${config.icon} text-2xl text-white`} />
+          <div className="w-10 h-10 rounded-lg bg-black/10 flex items-center justify-center">
+            <i className={`${config.icon} text-xl text-black`} />
           </div>
         </div>
+      </div>
 
+      {/* Main Content - Centered */}
+      <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Input</h2>
-            <div className="space-y-4">
-              {config.fields.map(field => (
-                <div key={field.name}>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{field.label}</label>
-                  {field.type === 'textarea' ? (
-                    <textarea
-                      value={formData[field.name] || ''}
-                      onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
-                      placeholder={field.placeholder}
-                      rows={4}
-                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 resize-none"
-                    />
-                  ) : field.type === 'select' ? (
-                    <select
-                      value={formData[field.name] || field.options[0]}
-                      onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
-                      className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  ) : field.type === 'range' ? (
-                    <div>
-                      <input
-                        type="range"
-                        value={formData[field.name] || field.default}
-                        onChange={e => setFormData({ ...formData, [field.name]: parseInt(e.target.value) })}
-                        min={field.min}
-                        max={field.max}
-                        className="w-full"
-                      />
-                      <div className="text-center text-sm text-gray-600 mt-1">
-                        Level: {formData[field.name] || field.default}
-                      </div>
+          {/* Input Section */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+              <div className="p-6 sm:p-8 space-y-8">
+                <div className="space-y-6">
+                  <div className="pb-3 border-b-2 border-[#F2CF7E]">
+                    <h2 className="text-lg font-bold text-gray-900">Input</h2>
+                  </div>
+
+                  {config.fields.map(field => (
+                    <div key={field.name}>
+                      <label className="block text-sm font-semibold text-gray-900 mb-2">
+                        {field.label}
+                      </label>
+                      {field.type === 'textarea' ? (
+                        <textarea
+                          value={formData[field.name] || ''}
+                          onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
+                          placeholder={field.placeholder}
+                          rows={4}
+                          className="w-full px-4 py-3 rounded-lg border-2 border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors resize-none"
+                        />
+                      ) : field.type === 'select' ? (
+                        <select
+                          value={formData[field.name] || field.options[0]}
+                          onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
+                          className="w-full h-12 px-4 rounded-lg border-2 border-gray-200 text-sm text-gray-900 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors"
+                        >
+                          {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      ) : field.type === 'range' ? (
+                        <div>
+                          <input
+                            type="range"
+                            value={formData[field.name] || field.default}
+                            onChange={e => setFormData({ ...formData, [field.name]: parseInt(e.target.value) })}
+                            min={field.min}
+                            max={field.max}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#F2CF7E]"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-2">
+                            <span>Level {field.min}</span>
+                            <span className="font-bold text-gray-900">Level: {formData[field.name] || field.default}</span>
+                            <span>Level {field.max}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <input
+                          type={field.type}
+                          value={formData[field.name] || ''}
+                          onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
+                          placeholder={field.placeholder}
+                          className="w-full h-12 px-4 rounded-lg border-2 border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors"
+                        />
+                      )}
                     </div>
-                  ) : (
-                    <input
-                      type={field.type}
-                      value={formData[field.name] || ''}
-                      onChange={e => setFormData({ ...formData, [field.name]: e.target.value })}
-                      placeholder={field.placeholder}
-                      className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  )}
+                  ))}
                 </div>
-              ))}
-              <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className={`w-full py-3 rounded-lg bg-gradient-to-r ${config.color} text-white font-medium hover:opacity-90 disabled:bg-gray-300 disabled:cursor-not-allowed`}
-              >
-                {loading ? 'Processing...' : 'Generate'}
-              </button>
-            </div>
+              </div>
+
+              {/* Form Footer */}
+              <div className="px-6 sm:px-8 py-6 bg-gradient-to-r from-[#F2CF7E]/10 to-[#F2CF7E]/5 border-t-2 border-[#F2CF7E] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/ai-tools')}
+                  className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-white hover:border-gray-400 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-8 py-3 bg-[#F2CF7E] text-black font-bold rounded-lg hover:bg-[#e0bd6c] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  {loading ? (
+                    <>
+                      <i className="ri-loader-4-line animate-spin text-lg" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <i className="ri-sparkling-line text-lg" />
+                      Generate
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Result</h2>
-            {result ? (
-              <div className="prose prose-sm max-w-none">
-                <div className="whitespace-pre-wrap text-gray-700">{result}</div>
+          {/* Output Section */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="p-6 sm:p-8 space-y-6">
+              <div className="pb-3 border-b-2 border-[#F2CF7E]">
+                <h2 className="text-lg font-bold text-gray-900">Result</h2>
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                <i className={`${config.icon} text-5xl mb-3`} />
-                <p>Your result will appear here</p>
+
+              {result ? (
+                <div className="prose prose-sm max-w-none">
+                  <div className="whitespace-pre-wrap text-gray-700 leading-relaxed">{result}</div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-[400px] text-gray-400">
+                  <div className="w-20 h-20 rounded-full bg-[#F2CF7E]/20 flex items-center justify-center mb-4">
+                    <i className={`${config.icon} text-4xl text-[#F2CF7E]`} />
+                  </div>
+                  <p className="text-sm font-medium">Your result will appear here</p>
+                  <p className="text-xs text-gray-400 mt-1">Fill in the form and click Generate</p>
+                </div>
+              )}
+            </div>
+
+            {result && (
+              <div className="px-6 sm:px-8 py-6 bg-gradient-to-r from-[#F2CF7E]/10 to-[#F2CF7E]/5 border-t-2 border-[#F2CF7E] flex items-center justify-end gap-3">
+                <button
+                  onClick={() => navigator.clipboard.writeText(result)}
+                  className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-white hover:border-gray-400 transition-colors flex items-center gap-2"
+                >
+                  <i className="ri-file-copy-line" />
+                  Copy
+                </button>
+                <button
+                  onClick={() => setResult('')}
+                  className="px-6 py-3 bg-[#F2CF7E] text-black font-bold rounded-lg hover:bg-[#e0bd6c] transition-colors flex items-center gap-2 shadow-md"
+                >
+                  <i className="ri-refresh-line" />
+                  New Result
+                </button>
               </div>
             )}
           </div>

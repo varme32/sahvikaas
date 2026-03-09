@@ -25,7 +25,6 @@ export default function StudyAssistant() {
     setLoading(true)
 
     try {
-      // Filter out the initial AI greeting from history
       const historyToSend = messages.filter(m => m.role !== 'ai' || messages.indexOf(m) !== 0)
       
       const res = await apiRequest('/api/ai/assistant', {
@@ -47,35 +46,35 @@ export default function StudyAssistant() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
-      <div className="max-w-4xl mx-auto p-4 sm:p-6">
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={() => navigate('/ai-tools')}
-            className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors"
-          >
-            <i className="ri-arrow-left-line text-xl text-gray-700" />
+    <div className="space-y-6">
+      {/* Header Section - Full Width */}
+      <div className="bg-[#F2CF7E] border-y border-[#e0bd6c] py-6 -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6 shadow-sm">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
+          <button onClick={() => navigate('/ai-tools')} className="w-10 h-10 rounded-lg bg-black/10 hover:bg-black/20 flex items-center justify-center transition-colors">
+            <i className="ri-arrow-left-line text-xl text-black" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900">Study Assistant</h1>
-            <p className="text-sm text-gray-500">Get instant help with any topic</p>
+          <div className="text-center flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-black">Study Assistant</h1>
+            <p className="text-sm text-black/80 mt-1">Get instant help with any topic</p>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
-            <i className="ri-chat-smile-2-line text-2xl text-white" />
+          <div className="w-10 h-10 rounded-lg bg-black/10 flex items-center justify-center">
+            <i className="ri-chat-smile-2-line text-xl text-black" />
           </div>
         </div>
+      </div>
 
+      {/* Main Content - Centered */}
+      <div className="max-w-4xl mx-auto">
         {/* Chat Container */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg flex flex-col h-[calc(100vh-200px)]">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-[calc(100vh-250px)]">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap ${
                   msg.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-br-md'
-                    : 'bg-gray-100 text-gray-800 rounded-bl-md'
+                    ? 'bg-[#F2CF7E] text-black font-medium rounded-br-md'
+                    : 'bg-white text-gray-800 rounded-bl-md border border-gray-200'
                 }`}>
                   {msg.content}
                 </div>
@@ -93,20 +92,20 @@ export default function StudyAssistant() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
-          <div className="p-4 border-t border-gray-200">
-            <div className="flex gap-2">
+          {/* Input Footer */}
+          <div className="px-4 sm:px-6 py-4 bg-gradient-to-r from-[#F2CF7E]/10 to-[#F2CF7E]/5 border-t-2 border-[#F2CF7E]">
+            <div className="flex gap-3">
               <input
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
                 placeholder="Ask me anything..."
-                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                className="flex-1 h-12 px-4 rounded-lg border-2 border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors"
               />
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || loading}
-                className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shrink-0"
+                className="w-12 h-12 rounded-lg bg-[#F2CF7E] text-black flex items-center justify-center hover:bg-[#e0bd6c] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-md"
               >
                 <i className="ri-send-plane-fill text-xl" />
               </button>

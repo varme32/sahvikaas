@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getBadges, getLeaderboard, getStudyActivity, getAchievementStats } from '../../lib/api'
 
 // ─── Circular Progress Component ───
-function CircularProgress({ percentage, size = 64, strokeWidth = 5, color }) {
+function CircularProgress({ percentage, size = 64, strokeWidth = 5 }) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const [animatedPct, setAnimatedPct] = useState(0)
@@ -19,17 +19,11 @@ function CircularProgress({ percentage, size = 64, strokeWidth = 5, color }) {
       <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e5e7eb" strokeWidth={strokeWidth} fill="none" />
       <circle
         cx={size / 2} cy={size / 2} r={radius}
-        stroke={`url(#grad-${color})`} strokeWidth={strokeWidth} fill="none"
+        stroke="#F2CF7E" strokeWidth={strokeWidth} fill="none"
         strokeDasharray={circumference} strokeDashoffset={offset}
         strokeLinecap="round"
         style={{ transition: 'stroke-dashoffset 1s ease-out' }}
       />
-      <defs>
-        <linearGradient id={`grad-${color}`} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor={color === 'indigo' ? '#6366f1' : color === 'amber' ? '#f59e0b' : color === 'teal' ? '#14b8a6' : color === 'pink' ? '#ec4899' : color === 'red' ? '#ef4444' : color === 'yellow' ? '#eab308' : color === 'blue' ? '#3b82f6' : color === 'violet' ? '#8b5cf6' : color === 'orange' ? '#f97316' : '#64748b'} />
-          <stop offset="100%" stopColor={color === 'indigo' ? '#a855f7' : color === 'amber' ? '#f97316' : color === 'teal' ? '#10b981' : color === 'pink' ? '#f43f5e' : color === 'red' ? '#f97316' : color === 'yellow' ? '#f59e0b' : color === 'blue' ? '#06b6d4' : color === 'violet' ? '#a855f7' : color === 'orange' ? '#eab308' : '#6366f1'} />
-        </linearGradient>
-      </defs>
     </svg>
   )
 }
@@ -38,26 +32,25 @@ function CircularProgress({ percentage, size = 64, strokeWidth = 5, color }) {
 function BadgeCard({ badge }) {
   const pct = Math.round((badge.current / badge.target) * 100)
   const isComplete = pct >= 100
-  const colorName = badge.text.split('-')[1] // e.g. 'indigo'
 
   return (
-    <div className={`relative bg-white rounded-xl border border-gray-200 p-5 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 group ${isComplete ? 'ring-2 ring-green-400' : ''}`}>
+    <div className={`relative bg-white rounded-xl border-2 border-gray-200 p-5 hover:shadow-lg hover:border-[#F2CF7E] transition-all duration-300 hover:-translate-y-1 group ${isComplete ? 'ring-2 ring-[#F2CF7E]' : ''}`}>
       {isComplete && (
-        <div className="absolute -top-2 -right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center shadow-lg animate-bounce-slow">
-          <i className="ri-check-line text-white text-sm font-bold" />
+        <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#F2CF7E] rounded-full flex items-center justify-center shadow-lg animate-bounce-slow">
+          <i className="ri-check-line text-black text-sm font-bold" />
         </div>
       )}
       <div className="flex items-start gap-4">
         <div className="relative">
-          <CircularProgress percentage={Math.min(pct, 100)} size={64} strokeWidth={5} color={colorName} />
+          <CircularProgress percentage={Math.min(pct, 100)} size={64} strokeWidth={5} />
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`text-xs font-bold ${badge.text}`}>{pct}%</span>
+            <span className="text-xs font-bold text-black">{pct}%</span>
           </div>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <div className={`w-8 h-8 rounded-lg ${badge.bg} flex items-center justify-center`}>
-              <i className={`${badge.icon} ${badge.text}`} />
+            <div className="w-8 h-8 rounded-lg bg-[#F2CF7E] flex items-center justify-center shadow-sm">
+              <i className={`${badge.icon} text-black`} />
             </div>
             <h3 className="font-semibold text-gray-900 text-sm truncate">{badge.name}</h3>
           </div>
@@ -71,7 +64,7 @@ function BadgeCard({ badge }) {
             </div>
             <div className="flex justify-between items-center">
               <span className="text-xs text-gray-500">{badge.current}/{badge.target} {badge.unit}</span>
-              {isComplete && <span className="text-xs font-medium text-green-600">Completed!</span>}
+              {isComplete && <span className="text-xs font-bold text-[#F2CF7E]">Completed!</span>}
             </div>
           </div>
         </div>
@@ -125,8 +118,8 @@ function LeaderboardTab({ leaderboardData }) {
       </div>
 
       {/* Rest of leaderboard */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase">
+      <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden hover:shadow-md hover:border-[#F2CF7E] transition-all">
+        <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-[#F2CF7E]/10 border-b-2 border-[#F2CF7E]/30 text-xs font-bold text-gray-900 uppercase">
           <div className="col-span-1">#</div>
           <div className="col-span-5">Student</div>
           <div className="col-span-2 text-center">Dept</div>
@@ -149,7 +142,7 @@ function LeaderboardTab({ leaderboardData }) {
               <i className="ri-fire-fill text-orange-500 text-xs" />
               <span className="text-xs font-medium text-gray-700">{user.streak}d</span>
             </div>
-            <div className="col-span-2 text-right text-sm font-bold text-[#F2CF7E]">{user.xp.toLocaleString()}</div>
+            <div className="col-span-2 text-right text-sm font-bold text-black">{user.xp.toLocaleString()}</div>
           </div>
         ))}
       </div>
@@ -183,10 +176,10 @@ function StreaksTab({ streakData }) {
 
   function getHeatColor(hours) {
     if (hours === 0) return 'bg-gray-100'
-    if (hours <= 1) return 'bg-green-200'
-    if (hours <= 2) return 'bg-green-300'
-    if (hours <= 3) return 'bg-green-400'
-    return 'bg-green-600'
+    if (hours <= 1) return 'bg-[#F2CF7E]/30'
+    if (hours <= 2) return 'bg-[#F2CF7E]/50'
+    if (hours <= 3) return 'bg-[#F2CF7E]/70'
+    return 'bg-[#F2CF7E]'
   }
 
   // Group data into weeks
@@ -203,24 +196,29 @@ function StreaksTab({ streakData }) {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Current Streak', value: `${currentStreak} days`, icon: 'ri-fire-fill', color: 'text-orange-500', bg: 'bg-orange-50' },
-          { label: 'Longest Streak', value: `${longestStreak} days`, icon: 'ri-trophy-fill', color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Total Hours', value: `${totalHours} hrs`, icon: 'ri-time-fill', color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Active Days', value: `${activeDays}/${streakData.length}`, icon: 'ri-calendar-check-fill', color: 'text-green-500', bg: 'bg-green-50' },
+          { label: 'Current Streak', value: `${currentStreak} days`, icon: 'ri-fire-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Longest Streak', value: `${longestStreak} days`, icon: 'ri-trophy-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Total Hours', value: `${totalHours} hrs`, icon: 'ri-time-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Active Days', value: `${activeDays}/${streakData.length}`, icon: 'ri-calendar-check-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
         ].map(stat => (
-          <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center mb-2`}>
+          <div key={stat.label} className="bg-white rounded-xl border-2 border-gray-200 p-4 hover:shadow-md hover:border-[#F2CF7E] transition-all">
+            <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center mb-2 shadow-sm`}>
               <i className={`${stat.icon} text-xl ${stat.color}`} />
             </div>
             <p className="text-lg sm:text-xl font-bold text-gray-900">{stat.value}</p>
-            <p className="text-xs text-gray-500">{stat.label}</p>
+            <p className="text-xs text-gray-600 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
 
       {/* Heatmap */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Study Activity</h3>
+      <div className="bg-white rounded-xl border-2 border-gray-200 p-4 sm:p-6 hover:shadow-md hover:border-[#F2CF7E] transition-all">
+        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-[#F2CF7E] flex items-center justify-center">
+            <i className="ri-calendar-line text-black" />
+          </div>
+          Study Activity
+        </h3>
         <div className="overflow-x-auto">
           <div className="flex gap-1 min-w-fit">
             {weeks.map((week, wi) => (
@@ -237,8 +235,8 @@ function StreaksTab({ streakData }) {
           </div>
           <div className="flex items-center gap-2 mt-3 text-xs text-gray-500">
             <span>Less</span>
-            {['bg-gray-100', 'bg-green-200', 'bg-green-300', 'bg-green-400', 'bg-green-600'].map(c => (
-              <div key={c} className={`w-3 h-3 rounded-sm ${c}`} />
+            {['bg-gray-100', 'bg-[#F2CF7E]/30', 'bg-[#F2CF7E]/50', 'bg-[#F2CF7E]/70', 'bg-[#F2CF7E]'].map((c, i) => (
+              <div key={i} className={`w-3 h-3 rounded-sm ${c} border border-gray-200`} />
             ))}
             <span>More</span>
           </div>
@@ -246,13 +244,13 @@ function StreaksTab({ streakData }) {
       </div>
 
       {/* Streak Freeze Info */}
-      <div className="bg-gradient-to-r from-[#F2CF7E]/20 to-[#e0bd6c]/20 rounded-xl border border-[#F2CF7E]/30 p-4 sm:p-5 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-[#F2CF7E]/20 flex items-center justify-center shrink-0">
-          <i className="ri-shield-star-line text-xl text-[#F2CF7E]" />
+      <div className="bg-gradient-to-r from-[#F2CF7E]/20 to-[#e0bd6c]/20 rounded-xl border-2 border-[#F2CF7E]/50 p-4 sm:p-5 flex items-start gap-3 hover:shadow-md transition-all">
+        <div className="w-12 h-12 rounded-lg bg-[#F2CF7E] flex items-center justify-center shrink-0 shadow-sm">
+          <i className="ri-shield-star-line text-2xl text-black" />
         </div>
         <div>
-          <h4 className="font-semibold text-black text-sm">Streak Freeze Available</h4>
-          <p className="text-xs text-gray-700 mt-0.5">You have <span className="font-bold text-[#F2CF7E]">2 streak freezes</span> remaining this week. Missing one day won't break your streak!</p>
+          <h4 className="font-bold text-black text-sm">Streak Freeze Available</h4>
+          <p className="text-xs text-gray-700 mt-1">You have <span className="font-bold text-black">2 streak freezes</span> remaining this week. Missing one day won't break your streak!</p>
         </div>
       </div>
     </div>
@@ -332,19 +330,19 @@ export default function AchievementsPage() {
       {/* Stats Overview */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total XP', value: (stats.totalXP || 0).toLocaleString(), icon: 'ri-star-fill', color: 'text-yellow-500', bg: 'bg-yellow-50' },
-          { label: 'Badges Earned', value: `${completedBadges}/${totalBadges}`, icon: 'ri-award-fill', color: 'text-indigo-500', bg: 'bg-indigo-50' },
-          { label: 'Global Rank', value: stats.rank || '—', icon: 'ri-trophy-fill', color: 'text-amber-500', bg: 'bg-amber-50' },
-          { label: 'Study Streak', value: `${stats.currentStreak || 0} days`, icon: 'ri-fire-fill', color: 'text-orange-500', bg: 'bg-orange-50' },
+          { label: 'Total XP', value: (stats.totalXP || 0).toLocaleString(), icon: 'ri-star-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Badges Earned', value: `${completedBadges}/${totalBadges}`, icon: 'ri-award-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Global Rank', value: stats.rank || '—', icon: 'ri-trophy-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Study Streak', value: `${stats.currentStreak || 0} days`, icon: 'ri-fire-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
         ].map(stat => (
-          <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-3 sm:p-4 hover:shadow-sm transition-shadow">
+          <div key={stat.label} className="bg-white rounded-xl border-2 border-gray-200 p-3 sm:p-4 hover:shadow-md hover:border-[#F2CF7E] transition-all">
             <div className="flex items-center gap-2 mb-1">
-              <div className={`w-8 h-8 rounded-lg ${stat.bg} flex items-center justify-center`}>
-                <i className={`${stat.icon} ${stat.color}`} />
+              <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center shadow-sm`}>
+                <i className={`${stat.icon} text-lg ${stat.color}`} />
               </div>
             </div>
             <p className="text-lg sm:text-xl font-bold text-gray-900 mt-1">{stat.value}</p>
-            <p className="text-xs text-gray-500">{stat.label}</p>
+            <p className="text-xs text-gray-600 font-medium">{stat.label}</p>
           </div>
         ))}
       </div>
