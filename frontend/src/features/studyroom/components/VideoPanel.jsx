@@ -555,7 +555,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
           {/* Remote participants */}
           {[...participants.entries()].map(([socketId, participant]) => (
-            <RemoteVideo key={socketId} participant={participant} viewerIsMobile={isMobileDevice} />
+            <RemoteVideo key={socketId} participant={participant} />
           ))}
         </div>
       </div>
@@ -563,16 +563,16 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   )
 }
 
-function RemoteVideo({ participant, viewerIsMobile }) {
+function RemoteVideo({ participant }) {
   const videoRef = useRef(null)
 
   useEffect(() => {
     if (videoRef.current && participant.stream) videoRef.current.srcObject = participant.stream
   }, [participant.stream])
 
-  // Apply scaleX(-1) if either the remote participant is on mobile (their camera mirrors)
-  // or the local viewer is on mobile (mobile browser rendering mirrors the video)
-  const needsFlip = participant.isMobile || viewerIsMobile
+  // Only flip when the SENDER is on mobile — mobile front cameras send a mirrored
+  // raw feed over WebRTC. The viewer's device doesn't matter.
+  const needsFlip = !!participant.isMobile
 
   return (
     <div className="relative rounded-xl overflow-hidden bg-gray-800 w-full h-full" style={{ aspectRatio: '16/9', maxHeight: '100%', maxWidth: '100%' }}>
