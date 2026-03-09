@@ -70,7 +70,7 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
         console.log('✅ Socket connected:', socketRef.current.id)
 
         // Join room via socket
-        socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
+        socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current, isMobile: isMobileDevice })
 
         // Initialize Mediasoup device
         console.log('🎬 Initializing Mediasoup device...')
@@ -357,6 +357,9 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
           participant.audioOn = audio
           participant.videoOn = video
           participant.isMobile = !!isMobile
+        } else {
+          // Create participant if it doesn't exist yet (race condition)
+          next.set(from, { name: 'Peer', streams: {}, stream: null, audioOn: audio, videoOn: video, isMobile: !!isMobile })
         }
         return next
       })

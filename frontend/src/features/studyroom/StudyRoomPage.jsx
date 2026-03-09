@@ -64,6 +64,8 @@ export default function StudyRoomPage() {
   const meetingIdFromUrl = id || ''
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
+  // Detect actual mobile device (not just screen size) for camera orientation
+  const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
   // Room info state
   const [roomInfo, setRoomInfo] = useState({ name: '', subject: '' })
@@ -133,7 +135,7 @@ export default function StudyRoomPage() {
     const socket = getSocket()
     if (socket && meetingIdFromUrl) {
       const emitJoin = () => {
-        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
+        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName, isMobile: isMobileDevice })
         // Register in MongoDB so this room appears in user's history
         joinRoom(meetingIdFromUrl).catch(() => {})
       }
@@ -146,7 +148,7 @@ export default function StudyRoomPage() {
       // Re-join room on reconnect (socket gets a new ID after reconnect)
       const handleReconnect = () => {
         console.log('Socket reconnected, re-joining room...')
-        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
+        socket.emit('join-meeting', { meetingId: meetingIdFromUrl, userName, isMobile: isMobileDevice })
       }
       socket.on('connect', handleReconnect)
 
@@ -302,7 +304,7 @@ export default function StudyRoomPage() {
       joinRoom(meetingIdFromUrl).catch(() => {})
       // Re-emit join-meeting so VideoPanel (about to mount) gets existing participants
       const s = getSocket()
-      if (s) s.emit('join-meeting', { meetingId: meetingIdFromUrl, userName })
+      if (s) s.emit('join-meeting', { meetingId: meetingIdFromUrl, userName, isMobile: isMobileDevice })
     }
 
     const handleJoinDenied = (data) => {

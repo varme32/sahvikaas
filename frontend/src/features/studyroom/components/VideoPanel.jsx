@@ -95,7 +95,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         setupSocketListeners(socketRef.current)
         // Re-emit join-meeting so server re-sends existing-participants to our newly
         // registered listeners. The backend handles duplicate joins gracefully.
-        socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
+        socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current, isMobile: isMobileDevice })
         // Send initial media state including isMobile flag
         socketRef.current.emit('media-state', {
           meetingId, audio: isMicOn, video: isVideoOn, isMobile: isMobileDevice,
@@ -115,7 +115,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           if (!socket?.connected) connectSocket()
           socketRef.current = socket || getSocket()
           setupSocketListeners(socketRef.current)
-          socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current })
+          socketRef.current.emit('join-meeting', { meetingId, userName: userNameRef.current, isMobile: isMobileDevice })
           socketRef.current.emit('media-state', {
             meetingId, audio: isMicOn, video: isVideoOn, isMobile: isMobileDevice,
           })
@@ -235,6 +235,14 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       for (const user of existingUsers) {
         // Skip if we already have a peer connection (avoid duplicate offers)
         if (peersRef.current.has(user.socketId)) continue
+        // Store participant info including isMobile
+        setParticipants(prev => {
+          const next = new Map(prev)
+          if (!next.has(user.socketId)) {
+            next.set(user.socketId, { name: user.name, stream: null, audioOn: user.audioOn !== false, videoOn: user.videoOn !== false, isMobile: !!user.isMobile })
+          }
+          return next
+        })
         const pc = createPeerConnection(user.socketId, user.name)
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
@@ -247,7 +255,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       if (user.socketId === socket.id) return
       setParticipants(prev => {
         const next = new Map(prev)
-        next.set(user.socketId, { name: user.name, stream: null, audioOn: true, videoOn: true })
+        next.set(user.socketId, { name: user.name, stream: null, audioOn: true, videoOn: true, isMobile: !!user.isMobile })
         return next
       })
     })
@@ -295,7 +303,12 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       setParticipants(prev => {
         const next = new Map(prev)
         const existing = next.get(from)
-        if (existing) next.set(from, { ...existing, audioOn: audio, videoOn: video, isMobile: !!isMobile })
+        if (existing) {
+          next.set(from, { ...existing, audioOn: audio, videoOn: video, isMobile: !!isMobile })
+        } else {
+          // Participant entry may not exist yet (race condition) — create it
+          next.set(from, { name: 'Peer', stream: null, audioOn: audio, videoOn: video, isMobile: !!isMobile })
+        }
         return next
       })
     })
@@ -320,6 +333,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         socketRef.current.emit('join-meeting', {
           meetingId: activeMeetingRef.current,
           userName: userNameRef.current,
+          isMobile: isMobileDevice,
         })
       }
     }

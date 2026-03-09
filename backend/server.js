@@ -635,7 +635,7 @@ io.on('connection', (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`)
 
   // ─── JOIN ROOM ───────────────────────────────
-  socket.on('join-meeting', ({ meetingId, userName }) => {
+  socket.on('join-meeting', ({ meetingId, userName, isMobile }) => {
     const room = getOrCreateRoom(meetingId, userName)
     if (room.ended) {
       socket.emit('room-ended', { message: 'This room has been ended by the host.' })
@@ -644,6 +644,9 @@ io.on('connection', (socket) => {
 
     // If user is already in participants (e.g. re-join from VideoPanel), skip
     if (room.participants.has(socket.id)) {
+      // Update isMobile flag if provided
+      const existingP = room.participants.get(socket.id)
+      if (typeof isMobile === 'boolean') existingP.isMobile = isMobile
       // Re-send room state in case they need it
       const existingParticipants = []
       for (const [sid, p] of room.participants) {
@@ -679,6 +682,7 @@ io.on('connection', (socket) => {
         audioOn: true,
         videoOn: true,
         isHost: isHost,
+        isMobile: !!isMobile,
       }
       room.participants.set(socket.id, participant)
 
@@ -741,6 +745,7 @@ io.on('connection', (socket) => {
         name: userName,
         socketId: socket.id,
         requestedAt: new Date().toISOString(),
+        isMobile: !!isMobile,
       }
       room.waitingRoom.set(socket.id, waitingParticipant)
 
@@ -827,6 +832,7 @@ io.on('connection', (socket) => {
       audioOn: true,
       videoOn: true,
       isHost: false,
+      isMobile: !!waitingParticipant.isMobile,
     }
     room.participants.set(socketId, participant)
 
