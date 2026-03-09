@@ -1,23 +1,49 @@
 import { useState, useRef, useEffect } from 'react'
 import { generateQuiz } from '../../../lib/api'
+import { getSocket } from '../../../lib/socket'
 
-export default function QuizGeneratorPanel() {
+export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQuiz, quizResults }) {
   const [file, setFile] = useState(null)
   const [topic, setTopic] = useState('')
   const [numQuestions, setNumQuestions] = useState(10)
   const [timeMinutes, setTimeMinutes] = useState(15)
-  const [stage, setStage] = useState('upload') // upload | loading | quiz | results
+  const [stage, setStage] = useState('upload') // upload | loading | quiz | results | leaderboard
   const [questions, setQuestions] = useState([])
   const [answers, setAnswers] = useState({})
   const [timeLeft, setTimeLeft] = useState(0)
   const [score, setScore] = useState(null)
   const [error, setError] = useState('')
+  const [hasSubmitted, setHasSubmitted] = useState(false)
   const timerRef = useRef(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [])
+
+  // When an active quiz is broadcast, participants auto-enter quiz mode
+  useEffect(() => {
+    if (activeQuiz && !hasSubmitted) {
+      setQuestions(activeQuiz.questions)
+      setAnswers({})
+      setTimeLeft(activeQuiz.timeMinutes * 60)
+      setScore(null)
+      setStage('quiz')
+    }
+    if (!activeQuiz && stage === 'quiz') {
+      // Quiz was ended by host
+      if (!hasSubmitted) {
+        handleSubmit()
+      }
+    }
+  }, [activeQuiz])
+
+  // Reset hasSubmitted when a new quiz starts
+  useEffect(() => {
+    if (activeQuiz) {
+      setHasSubmitted(false)
+    }
+  }, [activeQuiz?.id])
 
   useEffect(() => {
     if (stage === 'quiz' && timeLeft > 0) {
@@ -57,6 +83,44 @@ export default function QuizGeneratorPanel() {
       setAnswers({})
       setTimeLeft(timeMinutes * 60)
       setStage('quiz')
+
+      // Broadcast quiz to all participants via socket
+      const socket = getSocket()
+      if (socket?.connected && roomId) {
+        socket.emit('quiz-start', {
+          meetingId: roomId,
+          quiz: {
+            id: Date.now().toString(),
+            questions: data.questions,
+            timeMinutes,
+            createdBy: userName,
+          },
+        })
+      }
+    } catch (err) {
+      setError(`Failed to generate quiz: ${err.message}`)
+      setStage('upload')
+    }
+  }
+
+  // Personal practice quiz (anyone can do solo)
+  const startPersonalQuiz = async () => {
+    if (!file && !topic.trim()) {
+      setError('Please upload a PDF or enter a topic.')
+      return
+    }
+    setError('')
+    setStage('loading')
+
+    try {
+      const data = await generateQuiz(file, numQuestions, topic.trim())
+      if (!data.questions || data.questions.length === 0) {
+        throw new Error('No questions generated. Try a different PDF or topic.')
+      }
+      setQuestions(data.questions)
+      setAnswers({})
+      setTimeLeft(timeMinutes * 60)
+      setStage('quiz')
     } catch (err) {
       setError(`Failed to generate quiz: ${err.message}`)
       setStage('upload')
@@ -66,11 +130,29 @@ export default function QuizGeneratorPanel() {
   const handleSubmit = () => {
     if (timerRef.current) clearInterval(timerRef.current)
     let correct = 0
-    questions.forEach((q, i) => {
+    const currentQuestions = questions.length > 0 ? questions : (activeQuiz?.questions || [])
+    currentQuestions.forEach((q, i) => {
       if (answers[i] === q.correct) correct++
     })
-    setScore({ correct, total: questions.length })
+    const result = { correct, total: currentQuestions.length }
+    setScore(result)
     setStage('results')
+    setHasSubmitted(true)
+
+    // Submit result to room via socket
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('quiz-submit', {
+        meetingId: roomId,
+        result: {
+          userName,
+          correct: result.correct,
+          total: result.total,
+          percentage: Math.round((result.correct / result.total) * 100),
+          answers,
+        },
+      })
+    }
   }
 
   const resetQuiz = () => {
@@ -81,6 +163,15 @@ export default function QuizGeneratorPanel() {
     setAnswers({})
     setScore(null)
     setError('')
+    setHasSubmitted(false)
+  }
+
+  const endQuizForAll = () => {
+    const socket = getSocket()
+    if (socket?.connected && roomId) {
+      socket.emit('quiz-end', { meetingId: roomId })
+    }
+    resetQuiz()
   }
 
   const formatTime = (seconds) => {
@@ -105,6 +196,33 @@ export default function QuizGeneratorPanel() {
         {/* Upload / Config Stage */}
         {stage === 'upload' && (
           <div className="space-y-4">
+            {/* Show leaderboard from previous quiz if results exist */}
+            {quizResults && quizResults.length > 0 && (
+              <div className="mb-4 p-3 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-1.5">
+                  <i className="ri-trophy-line text-yellow-600" />
+                  Last Quiz Results
+                </h4>
+                <div className="space-y-1.5">
+                  {quizResults
+                    .sort((a, b) => b.percentage - a.percentage)
+                    .map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        i === 0 ? 'bg-yellow-400 text-white' : i === 1 ? 'bg-gray-300 text-white' : i === 2 ? 'bg-orange-400 text-white' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {i + 1}
+                      </span>
+                      <span className="flex-1 font-medium text-gray-700">{r.userName}</span>
+                      <span className={`font-semibold ${r.percentage >= 70 ? 'text-green-600' : r.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {r.percentage}% ({r.correct}/{r.total})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Upload PDF (optional)</label>
               <input
@@ -159,12 +277,28 @@ export default function QuizGeneratorPanel() {
               </div>
             </div>
 
+            {/* Host can broadcast quiz to all */}
+            {isHost && (
+              <button
+                onClick={startQuiz}
+                className="w-full py-2.5 text-sm font-medium rounded-lg text-white bg-[#F2CF7E] hover:bg-[#e0bd6c] transition-colors flex items-center justify-center gap-2"
+              >
+                <i className="ri-broadcast-line" />
+                Generate & Send to All Participants
+              </button>
+            )}
+
+            {/* Everyone can do personal practice */}
             <button
-              onClick={startQuiz}
-              className="w-full py-2.5 text-sm font-medium rounded-lg text-white bg-[#F2CF7E] hover:bg-[#e0bd6c] transition-colors flex items-center justify-center gap-2"
+              onClick={startPersonalQuiz}
+              className={`w-full py-2.5 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                isHost
+                  ? 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  : 'text-white bg-[#F2CF7E] hover:bg-[#e0bd6c]'
+              }`}
             >
               <i className="ri-questionnaire-line" />
-              Generate Quiz with AI
+              {isHost ? 'Practice Solo' : 'Generate Quiz with AI'}
             </button>
           </div>
         )}
@@ -194,6 +328,12 @@ export default function QuizGeneratorPanel() {
                   style={{ width: `${(Object.keys(answers).length / questions.length) * 100}%` }}
                 />
               </div>
+              {activeQuiz && (
+                <p className="text-xs text-blue-600 mt-1">
+                  <i className="ri-broadcast-line mr-1" />
+                  Quiz by {activeQuiz.createdBy}
+                </p>
+              )}
             </div>
 
             {questions.map((q, qi) => (
@@ -246,6 +386,36 @@ export default function QuizGeneratorPanel() {
               </p>
             </div>
 
+            {/* Live Leaderboard */}
+            {quizResults && quizResults.length > 0 && (
+              <div className="p-3 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-1.5">
+                  <i className="ri-trophy-line text-yellow-600" />
+                  Live Leaderboard ({quizResults.length} submitted)
+                </h4>
+                <div className="space-y-1.5">
+                  {quizResults
+                    .sort((a, b) => b.percentage - a.percentage)
+                    .map((r, i) => (
+                    <div key={i} className={`flex items-center gap-2 text-sm p-1.5 rounded ${r.userName === userName ? 'bg-white/60' : ''}`}>
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        i === 0 ? 'bg-yellow-400 text-white' : i === 1 ? 'bg-gray-300 text-white' : i === 2 ? 'bg-orange-400 text-white' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {i + 1}
+                      </span>
+                      <span className="flex-1 font-medium text-gray-700">
+                        {r.userName}
+                        {r.userName === userName && <span className="text-[10px] ml-1 text-blue-600">(You)</span>}
+                      </span>
+                      <span className={`font-semibold ${r.percentage >= 70 ? 'text-green-600' : r.percentage >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {r.percentage}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {questions.map((q, qi) => {
               const isCorrect = answers[qi] === q.correct
               return (
@@ -268,9 +438,16 @@ export default function QuizGeneratorPanel() {
               )
             })}
 
-            <button onClick={resetQuiz} className="w-full py-2.5 bg-[#F2CF7E] text-white text-sm font-medium rounded-lg hover:bg-[#e0bd6c] transition-colors">
-              Take Another Quiz
-            </button>
+            <div className="flex gap-2">
+              {isHost && activeQuiz && (
+                <button onClick={endQuizForAll} className="flex-1 py-2.5 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors">
+                  End Quiz for All
+                </button>
+              )}
+              <button onClick={resetQuiz} className="flex-1 py-2.5 bg-[#F2CF7E] text-white text-sm font-medium rounded-lg hover:bg-[#e0bd6c] transition-colors">
+                {activeQuiz ? 'Back to Quiz Setup' : 'Take Another Quiz'}
+              </button>
+            </div>
           </div>
         )}
       </div>

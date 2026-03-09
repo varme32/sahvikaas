@@ -108,6 +108,8 @@ function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
       resources: [],
       folders: [],
       points: new Map(),
+      activeQuiz: null,
+      quizResults: [],
     })
   }
   return rooms.get(roomId)
@@ -649,6 +651,8 @@ io.on('connection', (socket) => {
         resources: room.resources,
         folders: room.folders,
         leaderboard: getLeaderboard(room),
+        activeQuiz: room.activeQuiz,
+        quizResults: room.quizResults,
       })
       return
     }
@@ -695,6 +699,8 @@ io.on('connection', (socket) => {
         resources: room.resources,
         folders: room.folders,
         leaderboard: getLeaderboard(room),
+        activeQuiz: room.activeQuiz,
+        quizResults: room.quizResults,
       })
 
       // Notify others about the new user
@@ -845,6 +851,8 @@ io.on('connection', (socket) => {
         resources: room.resources,
         folders: room.folders,
         leaderboard: getLeaderboard(room),
+        activeQuiz: room.activeQuiz,
+        quizResults: room.quizResults,
       })
 
       approvedSocket.emit('join-approved', { message: 'You have been admitted to the room' })
@@ -1117,7 +1125,10 @@ io.on('connection', (socket) => {
       id: uuidv4(),
       text: task.text,
       dueDate: task.dueDate || '',
+      priority: task.priority || 'medium',
+      assignedTo: task.assignedTo || 'all',
       completed: false,
+      completedBy: null,
       createdBy: socket.userName,
       createdAt: new Date().toISOString(),
     }
@@ -1130,13 +1141,14 @@ io.on('connection', (socket) => {
     console.log(`📋 [${meetingId}] ${socket.userName} created task: ${task.text}`)
   })
 
-  socket.on('task-toggle', ({ meetingId, taskId }) => {
+  socket.on('task-toggle', ({ meetingId, taskId, userName }) => {
     const room = rooms.get(meetingId)
     if (!room) return
 
     const task = room.tasks.find(t => t.id === taskId)
     if (task) {
       task.completed = !task.completed
+      task.completedBy = task.completed ? (userName || socket.userName) : null
       io.to(meetingId).emit('tasks-updated', room.tasks)
 
       if (task.completed) {
@@ -1198,11 +1210,11 @@ io.on('connection', (socket) => {
   })
 
   // ─── SHARED RESOURCES ─────────────────────
-  socket.on('resource-folder-create', ({ meetingId, name }) => {
+  socket.on('resource-folder-create', ({ meetingId, name, color, parentId }) => {
     const room = rooms.get(meetingId)
     if (!room) return
 
-    const folder = { id: 'f-' + uuidv4().slice(0, 8), name, createdBy: socket.userName }
+    const folder = { id: 'f-' + uuidv4().slice(0, 8), name, color: color || '#6366f1', parentId: parentId || null, createdBy: socket.userName }
     room.folders.push(folder)
     io.to(meetingId).emit('resources-updated', { resources: room.resources, folders: room.folders })
   })
@@ -1217,6 +1229,10 @@ io.on('connection', (socket) => {
       type: resource.type || 'default',
       size: resource.size || '0 KB',
       folderId: resource.folderId || null,
+      fileUrl: resource.fileUrl || null,
+      icon: resource.icon || 'ri-file-line',
+      iconColor: resource.iconColor || 'text-gray-500',
+      tags: resource.tags || [],
       uploadedBy: socket.userName,
       uploadedAt: new Date().toISOString(),
     }
@@ -1235,6 +1251,43 @@ io.on('connection', (socket) => {
 
     room.resources = room.resources.filter(r => r.id !== resourceId)
     io.to(meetingId).emit('resources-updated', { resources: room.resources, folders: room.folders })
+  })
+
+  // ─── QUIZ BROADCASTING ──────────────────────
+  socket.on('quiz-start', ({ meetingId, quiz }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    room.activeQuiz = quiz
+    room.quizResults = []
+    io.to(meetingId).emit('quiz-started', quiz)
+    console.log(`📝 [${meetingId}] ${socket.userName} started a quiz for all participants`)
+  })
+
+  socket.on('quiz-submit', ({ meetingId, result }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    // Remove any previous submission from same user
+    room.quizResults = room.quizResults.filter(r => r.userName !== result.userName)
+    room.quizResults.push(result)
+    // Sort by score desc, then time asc
+    room.quizResults.sort((a, b) => b.score - a.score || a.timeTaken - b.timeTaken)
+    io.to(meetingId).emit('quiz-results', room.quizResults)
+
+    awardPoints(room, result.userName, result.score, 'Quiz score')
+    io.to(meetingId).emit('points-updated', { leaderboard: getLeaderboard(room) })
+
+    console.log(`📝 [${meetingId}] ${result.userName} submitted quiz: ${result.score}/${result.total}`)
+  })
+
+  socket.on('quiz-end', ({ meetingId }) => {
+    const room = rooms.get(meetingId)
+    if (!room) return
+
+    room.activeQuiz = null
+    io.to(meetingId).emit('quiz-ended')
+    console.log(`📝 [${meetingId}] ${socket.userName} ended the quiz`)
   })
 
   // ─── POINTS REQUEST ────────────────────────

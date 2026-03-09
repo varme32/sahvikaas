@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { enhanceNotes } from '../../../lib/api'
 import { getSocket } from '../../../lib/socket'
 
-export default function NotesPanel({ roomId }) {
-  const [notes, setNotes] = useState([])
+export default function NotesPanel({ roomId, notes, setNotes }) {
   const [activeNote, setActiveNote] = useState(null)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -14,35 +13,15 @@ export default function NotesPanel({ roomId }) {
   const contentRef = useRef(null)
   const saveTimeoutRef = useRef(null)
 
-  // Subscribe to real-time notes events
+  // Update active note when notes change from parent
   useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-
-    const handleRoomState = (state) => {
-      if (state.sharedNotes) setNotes(state.sharedNotes)
-    }
-
-    const handleNotesUpdated = (updatedNotes) => {
-      setNotes(updatedNotes)
-      // If we have an active note, update its content from server
-      if (activeNote) {
-        const updated = updatedNotes.find(n => n.id === activeNote.id)
-        if (updated) {
-          setActiveNote(updated)
-          // Only update title/content if not currently editing (avoid overwriting user's typing)
-        }
+    if (activeNote) {
+      const updated = notes.find(n => n.id === activeNote.id)
+      if (updated) {
+        setActiveNote(updated)
       }
     }
-
-    socket.on('room-state', handleRoomState)
-    socket.on('notes-updated', handleNotesUpdated)
-
-    return () => {
-      socket.off('room-state', handleRoomState)
-      socket.off('notes-updated', handleNotesUpdated)
-    }
-  }, [activeNote?.id])
+  }, [notes])
 
   const filteredNotes = notes.filter(n =>
     n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

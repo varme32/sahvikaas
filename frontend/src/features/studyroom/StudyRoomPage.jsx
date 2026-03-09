@@ -8,7 +8,6 @@ import PdfSummarizerPanel from './components/PdfSummarizerPanel'
 import QuizGeneratorPanel from './components/QuizGeneratorPanel'
 import ResourcesPanel from './components/ResourcesPanel'
 import TasksPanel from './components/TasksPanel'
-import ParticipantsPanel from './components/ParticipantsPanel'
 import SettingsModal from './components/SettingsModal'
 import PointsModal from './components/PointsModal'
 import VoiceAssistant from './components/VoiceAssistant'
@@ -22,7 +21,6 @@ import { joinRoom, endRoom } from '../../lib/roomApiV2'
 
 const featureTabs = [
   { id: 'chat', label: 'Chat', icon: 'ri-message-3-line' },
-  { id: 'participants', label: 'People', icon: 'ri-group-line' },
   { id: 'notes', label: 'Notes', icon: 'ri-file-text-line' },
   { id: 'pdf', label: 'PDF Summarizer', icon: 'ri-file-pdf-2-line' },
   { id: 'quiz', label: 'Quiz Generator', icon: 'ri-questionnaire-line' },
@@ -134,6 +132,17 @@ export default function StudyRoomPage() {
   // Points from socket
   const [totalPoints, setTotalPoints] = useState(0)
 
+  // Lifted state for persistence across tab switches
+  const [chatMessages, setChatMessages] = useState([])
+  const [tasks, setTasks] = useState([])
+  const [sharedResources, setSharedResources] = useState([])
+  const [sharedFolders, setSharedFolders] = useState([])
+  const [sharedNotes, setSharedNotes] = useState([])
+  const [participants, setParticipants] = useState([])
+  // Quiz state shared across room
+  const [activeQuiz, setActiveQuiz] = useState(null) // { questions, timeMinutes, createdBy }
+  const [quizResults, setQuizResults] = useState([]) // [{ userName, score, total, answers }]
+
   // Connect socket when entering the study room, disconnect when leaving
   useEffect(() => {
     connectSocket()
@@ -177,7 +186,7 @@ export default function StudyRoomPage() {
     }
   }, [meetingIdFromUrl, userName])
 
-  // Subscribe to socket events for participant count and points
+  // Subscribe to socket events for participant count, points, and all shared state
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
@@ -185,17 +194,69 @@ export default function StudyRoomPage() {
     const handleParticipants = (list) => {
       setParticipantCount(list.length)
       setLastParticipantCount(list.length)
+      setParticipants(list)
     }
     const handlePoints = (data) => {
       if (data.userPoints) setTotalPoints(data.userPoints.points || 0)
     }
+    const handleRoomState = (state) => {
+      if (state.chatMessages) setChatMessages(state.chatMessages)
+      if (state.tasks) setTasks(state.tasks)
+      if (state.resources) setSharedResources(state.resources)
+      if (state.folders) setSharedFolders(state.folders)
+      if (state.sharedNotes) setSharedNotes(state.sharedNotes)
+      if (state.activeQuiz) setActiveQuiz(state.activeQuiz)
+      if (state.quizResults) setQuizResults(state.quizResults)
+    }
+    const handleChatMessage = (msg) => {
+      setChatMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev
+        return [...prev, msg]
+      })
+    }
+    const handleTasksUpdated = (updatedTasks) => {
+      setTasks(updatedTasks)
+    }
+    const handleResourcesUpdated = ({ resources, folders }) => {
+      setSharedResources(resources)
+      setSharedFolders(folders)
+    }
+    const handleNotesUpdated = (notes) => {
+      setSharedNotes(notes)
+    }
+    const handleQuizStarted = (quiz) => {
+      setActiveQuiz(quiz)
+      setQuizResults([])
+    }
+    const handleQuizResults = (results) => {
+      setQuizResults(results)
+    }
+    const handleQuizEnded = () => {
+      setActiveQuiz(null)
+    }
 
     socket.on('participants-updated', handleParticipants)
     socket.on('points-updated', handlePoints)
+    socket.on('room-state', handleRoomState)
+    socket.on('chat-message', handleChatMessage)
+    socket.on('tasks-updated', handleTasksUpdated)
+    socket.on('resources-updated', handleResourcesUpdated)
+    socket.on('notes-updated', handleNotesUpdated)
+    socket.on('quiz-started', handleQuizStarted)
+    socket.on('quiz-results', handleQuizResults)
+    socket.on('quiz-ended', handleQuizEnded)
 
     return () => {
       socket.off('participants-updated', handleParticipants)
       socket.off('points-updated', handlePoints)
+      socket.off('room-state', handleRoomState)
+      socket.off('chat-message', handleChatMessage)
+      socket.off('tasks-updated', handleTasksUpdated)
+      socket.off('resources-updated', handleResourcesUpdated)
+      socket.off('notes-updated', handleNotesUpdated)
+      socket.off('quiz-started', handleQuizStarted)
+      socket.off('quiz-results', handleQuizResults)
+      socket.off('quiz-ended', handleQuizEnded)
     }
   }, [])
 
@@ -422,14 +483,13 @@ export default function StudyRoomPage() {
 
   const renderFeatureContent = () => {
     switch (activeFeature) {
-      case 'chat': return <ChatPanel roomId={meetingIdFromUrl} userName={userName} />
-      case 'participants': return <ParticipantsPanel roomId={meetingIdFromUrl} isHost={isHost} />
-      case 'notes': return <NotesPanel roomId={meetingIdFromUrl} />
+      case 'chat': return <ChatPanel roomId={meetingIdFromUrl} userName={userName} messages={chatMessages} setMessages={setChatMessages} />
+      case 'notes': return <NotesPanel roomId={meetingIdFromUrl} notes={sharedNotes} setNotes={setSharedNotes} />
       case 'pdf': return <PdfSummarizerPanel />
-      case 'quiz': return <QuizGeneratorPanel />
-      case 'resources': return <ResourcesPanel roomId={meetingIdFromUrl} />
-      case 'tasks': return <TasksPanel roomId={meetingIdFromUrl} />
-      default: return <ChatPanel roomId={meetingIdFromUrl} userName={userName} />
+      case 'quiz': return <QuizGeneratorPanel roomId={meetingIdFromUrl} userName={userName} isHost={isHost} activeQuiz={activeQuiz} quizResults={quizResults} />
+      case 'resources': return <ResourcesPanel roomId={meetingIdFromUrl} resources={sharedResources} folders={sharedFolders} />
+      case 'tasks': return <TasksPanel roomId={meetingIdFromUrl} userName={userName} tasks={tasks} setTasks={setTasks} participants={participants} />
+      default: return <ChatPanel roomId={meetingIdFromUrl} userName={userName} messages={chatMessages} setMessages={setChatMessages} />
     }
   }
 
@@ -802,7 +862,7 @@ export default function StudyRoomPage() {
       )}
 
       {/* Modals */}
-      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} roomId={meetingIdFromUrl} />
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} roomId={meetingIdFromUrl} isHost={isHost} participants={participants} />
       <PointsModal isOpen={pointsOpen} onClose={() => setPointsOpen(false)} roomId={meetingIdFromUrl} userName={userName} />
       <WaitingRoomModal isOpen={waitingRoomOpen} onClose={() => setWaitingRoomOpen(false)} roomId={meetingIdFromUrl} />
 

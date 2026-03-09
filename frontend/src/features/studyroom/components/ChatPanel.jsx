@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { getSocket } from '../../../lib/socket'
 import { getSmartReply } from '../../../lib/api'
 
-export default function ChatPanel({ roomId, userName }) {
-  const [messages, setMessages] = useState([])
+export default function ChatPanel({ roomId, userName, messages, setMessages }) {
   const [input, setInput] = useState('')
   const [isAiReplying, setIsAiReplying] = useState(false)
   const [typingUsers, setTypingUsers] = useState(new Map())
@@ -11,22 +10,11 @@ export default function ChatPanel({ roomId, userName }) {
   const typingTimeoutRef = useRef(null)
   const socketIdRef = useRef(null)
 
-  // Subscribe to real-time chat events
+  // Subscribe to typing events only (messages come from parent)
   useEffect(() => {
     const socket = getSocket()
     if (!socket) return
     socketIdRef.current = socket.id
-
-    const handleRoomState = (state) => {
-      if (state.chatMessages) setMessages(state.chatMessages)
-    }
-
-    const handleChatMessage = (msg) => {
-      setMessages(prev => {
-        if (prev.some(m => m.id === msg.id)) return prev
-        return [...prev, msg]
-      })
-    }
 
     const handleTyping = ({ userId, userName: typer, isTyping }) => {
       setTypingUsers(prev => {
@@ -37,13 +25,9 @@ export default function ChatPanel({ roomId, userName }) {
       })
     }
 
-    socket.on('room-state', handleRoomState)
-    socket.on('chat-message', handleChatMessage)
     socket.on('chat-typing', handleTyping)
 
     return () => {
-      socket.off('room-state', handleRoomState)
-      socket.off('chat-message', handleChatMessage)
       socket.off('chat-typing', handleTyping)
     }
   }, [])
