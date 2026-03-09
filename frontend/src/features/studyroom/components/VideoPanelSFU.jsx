@@ -398,12 +398,47 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
     setParticipants(new Map())
   }
 
-  // ========== Grid ==========
+  // ========== Dynamic Grid (Google Meet style) ==========
   const totalParticipants = participants.size + 1
-  const isMobileView = typeof window !== 'undefined' && window.innerWidth < 768
-  const gridCols = isMobileView
-    ? (totalParticipants <= 1 ? 1 : 2)
-    : (totalParticipants <= 1 ? 1 : totalParticipants <= 4 ? 2 : totalParticipants <= 9 ? 3 : 4)
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+  const gridContainerRef = useRef(null)
+
+  useEffect(() => {
+    const el = gridContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect
+      setContainerSize({ width, height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const computeGrid = (count, cW, cH) => {
+    if (count <= 0 || cW <= 0 || cH <= 0) return { cols: 1, rows: 1 }
+    const aspect = 16 / 9
+    let bestCols = 1
+    let bestSize = 0
+    for (let cols = 1; cols <= count; cols++) {
+      const rows = Math.ceil(count / cols)
+      const tileW = cW / cols
+      const tileH = cH / rows
+      const w = Math.min(tileW, tileH * aspect)
+      const h = w / aspect
+      const size = w * h
+      if (size > bestSize) {
+        bestSize = size
+        bestCols = cols
+      }
+    }
+    return { cols: bestCols, rows: Math.ceil(count / bestCols) }
+  }
+
+  const { cols: gridCols, rows: gridRows } = computeGrid(
+    totalParticipants,
+    containerSize.width,
+    containerSize.height
+  )
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-gray-900">
@@ -432,19 +467,24 @@ export default function VideoPanelSFU({ meetingId, isMicOn, isVideoOn, isScreenS
       )}
 
       {/* Video Grid */}
-      <div className="flex-1 p-2 overflow-hidden flex items-center justify-center">
+      <div ref={gridContainerRef} className="flex-1 p-2 overflow-hidden flex items-center justify-center">
         <div
-          className="w-full h-full gap-2"
+          className="gap-1.5 sm:gap-2"
           style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-            gridAutoRows: '1fr',
-            alignContent: 'center',
+            gridTemplateRows: `repeat(${gridRows}, 1fr)`,
+            width: '100%',
+            height: '100%',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            alignItems: 'center',
+            justifyItems: 'center',
           }}
         >
           {/* Local video */}
-          <div className="relative rounded-xl overflow-hidden bg-gray-800" style={{ aspectRatio: '16/9' }}>
-            <video ref={localVideoRef} autoPlay playsInline muted className={'absolute inset-0 w-full h-full object-cover' + (!isVideoOn ? ' hidden' : '')} style={{ transform: 'scaleX(-1)' }} />
+          <div className="relative rounded-xl overflow-hidden bg-gray-800 w-full h-full" style={{ aspectRatio: '16/9', maxHeight: '100%', maxWidth: '100%' }}>
+            <video ref={localVideoRef} autoPlay playsInline muted className={'absolute inset-0 w-full h-full' + (!isVideoOn ? ' hidden' : '')} style={{ transform: 'scaleX(-1)', objectFit: 'cover' }} />
             {!isVideoOn && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
                 <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-[#F2CF7E] flex items-center justify-center text-white text-lg sm:text-xl font-bold">
@@ -498,13 +538,14 @@ function RemoteVideo({ participant, peerId }) {
   const showVideo = hasStream && participant.videoOn !== false
 
   return (
-    <div className="relative rounded-xl overflow-hidden bg-gray-800" style={{ aspectRatio: '16/9' }}>
+    <div className="relative rounded-xl overflow-hidden bg-gray-800 w-full h-full" style={{ aspectRatio: '16/9', maxHeight: '100%', maxWidth: '100%' }}>
       {hasStream && (
         <video 
           ref={videoRef} 
           autoPlay 
           playsInline 
-          className={'absolute inset-0 w-full h-full object-cover' + (!showVideo ? ' hidden' : '')} 
+          className={'absolute inset-0 w-full h-full' + (!showVideo ? ' hidden' : '')} 
+          style={{ objectFit: 'cover' }}
         />
       )}
       {(!hasStream || !showVideo) && (

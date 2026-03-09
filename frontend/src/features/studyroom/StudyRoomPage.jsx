@@ -323,7 +323,10 @@ export default function StudyRoomPage() {
     }
 
     const handleWaitingListUpdated = (data) => {
-      setWaitingCount(data.waitingList?.length || 0)
+      const count = data.waitingList?.length || 0
+      setWaitingCount(count)
+      // Auto-close waiting room modal when list is empty
+      if (count === 0) setWaitingRoomOpen(false)
     }
 
     socket.on('room-ended', handleRoomEnded)

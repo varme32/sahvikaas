@@ -32,11 +32,24 @@ export default function WaitingRoomModal({ isOpen, onClose, roomId }) {
     }
   }, [isOpen, roomId])
 
+  // Auto-close modal when waiting list becomes empty
+  useEffect(() => {
+    if (isOpen && waitingList.length === 0) {
+      // Small delay so host can see the list clear before it closes
+      const timer = setTimeout(() => {
+        if (waitingList.length === 0) onClose()
+      }, 600)
+      return () => clearTimeout(timer)
+    }
+  }, [waitingList.length, isOpen, onClose])
+
   const handleApprove = (socketId) => {
     const socket = getSocket()
     if (socket) {
       socket.emit('approve-participant', { meetingId: roomId, socketId })
     }
+    // Optimistically remove from local list
+    setWaitingList(prev => prev.filter(p => p.socketId !== socketId))
   }
 
   const handleDeny = (socketId) => {
@@ -44,6 +57,8 @@ export default function WaitingRoomModal({ isOpen, onClose, roomId }) {
     if (socket) {
       socket.emit('deny-participant', { meetingId: roomId, socketId })
     }
+    // Optimistically remove from local list
+    setWaitingList(prev => prev.filter(p => p.socketId !== socketId))
   }
 
   return (
