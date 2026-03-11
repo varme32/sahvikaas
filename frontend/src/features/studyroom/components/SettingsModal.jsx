@@ -2,18 +2,29 @@ import { useState, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
 import { getSocket } from '../../../lib/socket'
 
-const tabIcons = {
-  Participants: 'ri-group-line',
-  Audio: 'ri-mic-line',
-  Video: 'ri-vidicon-line',
-  Meeting: 'ri-settings-3-line',
+const getTabIcons = (isHost) => {
+  const tabs = {
+    Participants: 'ri-group-line',
+    Audio: 'ri-mic-line',
+    Video: 'ri-vidicon-line',
+    Meeting: 'ri-settings-3-line',
+  }
+  if (isHost) {
+    tabs['Host Controls'] = 'ri-shield-user-line'
+  }
+  return tabs
 }
 
-export default function SettingsModal({ isOpen, onClose, roomId }) {
+export default function SettingsModal({ isOpen, onClose, roomId, isHost, participants: participantsProp }) {
   const [activeTab, setActiveTab] = useState('Participants')
   const [waitingRoom, setWaitingRoom] = useState(false)
   const [screenSharing, setScreenSharing] = useState(true)
-  const [participants, setParticipants] = useState([])
+  const [participants, setParticipants] = useState(participantsProp || [])
+
+  // Sync participants from prop
+  useEffect(() => {
+    if (participantsProp) setParticipants(participantsProp)
+  }, [participantsProp])
 
   // Subscribe to real-time participant updates
   useEffect(() => {
@@ -30,6 +41,40 @@ export default function SettingsModal({ isOpen, onClose, roomId }) {
       socket.off('participants-updated', handleParticipants)
     }
   }, [])
+
+  // Host control handlers
+  const handleMuteParticipant = (socketId, currentlyOn) => {
+    const socket = getSocket()
+    if (!socket) return
+    socket.emit('host-mute-participant', { meetingId: roomId, targetSocketId: socketId, mute: currentlyOn })
+  }
+
+  const handleDisableVideo = (socketId, currentlyOn) => {
+    const socket = getSocket()
+    if (!socket) return
+    socket.emit('host-disable-video', { meetingId: roomId, targetSocketId: socketId, disable: currentlyOn })
+  }
+
+  const handleRemoveParticipant = (socketId, name) => {
+    if (!window.confirm(`Remove ${name} from the room?`)) return
+    const socket = getSocket()
+    if (!socket) return
+    socket.emit('host-remove-participant', { meetingId: roomId, targetSocketId: socketId })
+  }
+
+  const handleMuteAll = () => {
+    const socket = getSocket()
+    if (!socket) return
+    socket.emit('host-mute-all', { meetingId: roomId, mute: true })
+  }
+
+  const handleUnmuteAll = () => {
+    const socket = getSocket()
+    if (!socket) return
+    socket.emit('host-mute-all', { meetingId: roomId, mute: false })
+  }
+
+  const tabIcons = getTabIcons(isHost)
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-4xl">
@@ -92,7 +137,12 @@ export default function SettingsModal({ isOpen, onClose, roomId }) {
                     <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{p.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium text-gray-900">{p.name}</p>
+                      {p.isHost && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#F2CF7E]/20 text-[#b8941e]">Host</span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400">
                       {p.joinedAt ? `Joined ${new Date(p.joinedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Online'}
                     </p>
@@ -103,6 +153,92 @@ export default function SettingsModal({ isOpen, onClose, roomId }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {activeTab === 'Host Controls' && isHost && (
+            <div className="space-y-4">
+              {/* Bulk Actions */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-800 mb-3">Bulk Actions</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleMuteAll}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-red-50 text-red-600 text-sm font-medium hover:bg-red-100 transition-colors"
+                  >
+                    <i className="ri-mic-off-line" />
+                    Mute All
+                  </button>
+                  <button
+                    onClick={handleUnmuteAll}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-green-50 text-green-600 text-sm font-medium hover:bg-green-100 transition-colors"
+                  >
+                    <i className="ri-mic-line" />
+                    Unmute All
+                  </button>
+                </div>
+              </div>
+
+              {/* Individual Participant Controls */}
+              <div>
+                <h4 className="text-sm font-semibold text-gray-800 mb-3">Manage Participants</h4>
+                {participants.filter(p => !p.isHost).length === 0 && (
+                  <div className="text-center py-6 text-gray-400 text-sm">
+                    No other participants to manage
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {participants.filter(p => !p.isHost).map((p) => (
+                    <div key={p.socketId} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50">
+                      <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
+                        <span className="text-sm font-medium text-gray-600">{(p.name || 'U').slice(0, 2).toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-xs flex items-center gap-0.5 ${p.audioOn ? 'text-green-500' : 'text-red-400'}`}>
+                            <i className={p.audioOn ? 'ri-mic-line' : 'ri-mic-off-line'} />
+                          </span>
+                          <span className={`text-xs flex items-center gap-0.5 ${p.videoOn ? 'text-green-500' : 'text-red-400'}`}>
+                            <i className={p.videoOn ? 'ri-vidicon-line' : 'ri-vidicon-off-line'} />
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleMuteParticipant(p.socketId, p.audioOn)}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs transition-colors ${
+                            p.audioOn
+                              ? 'bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-500'
+                              : 'bg-red-100 text-red-500 hover:bg-green-100 hover:text-green-500'
+                          }`}
+                          title={p.audioOn ? 'Mute' : 'Unmute'}
+                        >
+                          <i className={p.audioOn ? 'ri-mic-off-line' : 'ri-mic-line'} />
+                        </button>
+                        <button
+                          onClick={() => handleDisableVideo(p.socketId, p.videoOn)}
+                          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs transition-colors ${
+                            p.videoOn
+                              ? 'bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-500'
+                              : 'bg-red-100 text-red-500 hover:bg-green-100 hover:text-green-500'
+                          }`}
+                          title={p.videoOn ? 'Turn off video' : 'Turn on video'}
+                        >
+                          <i className={p.videoOn ? 'ri-vidicon-off-line' : 'ri-vidicon-line'} />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveParticipant(p.socketId, p.name)}
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-500 transition-colors"
+                          title="Remove from room"
+                        >
+                          <i className="ri-user-unfollow-line" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
