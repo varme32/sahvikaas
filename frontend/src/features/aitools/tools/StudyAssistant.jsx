@@ -15,6 +15,17 @@ export default function StudyAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Clean markdown formatting from AI response
+  const cleanMarkdown = (text) => {
+    return text
+      .replace(/^#{1,6}\s+/gm, '') // Remove headers
+      .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.+?)\*/g, '$1') // Remove italic
+      .replace(/`(.+?)`/g, '$1') // Remove inline code
+      .replace(/^\s*[-*+]\s+/gm, '• ') // Convert list markers to bullets
+      .trim()
+  }
+
   const handleSend = async () => {
     if (!input.trim() || loading) return
     
@@ -31,7 +42,10 @@ export default function StudyAssistant() {
         method: 'POST',
         body: { message: userMsg, history: historyToSend }
       })
-      setMessages([...newMessages, { role: 'ai', content: res.response }])
+      
+      // Clean markdown from response
+      const cleanedResponse = cleanMarkdown(res.response)
+      setMessages([...newMessages, { role: 'ai', content: cleanedResponse }])
     } catch (error) {
       console.error('AI Error:', error)
       const isQuota = error.message?.includes('quota') || error.message?.includes('429')

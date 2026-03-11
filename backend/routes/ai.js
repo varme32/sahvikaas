@@ -72,15 +72,25 @@ router.post('/assistant', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' })
     }
     
-    // Build messages array from history
-    const messages = history
-      .filter(h => h.content && h.content.trim())
-      .map(h => ({
-        role: h.role === 'user' ? 'user' : 'assistant',
-        content: h.content
-      }))
+    // Build messages array - simple approach
+    const messages = []
     
-    messages.push({ role: 'user', content: message })
+    // Add conversation history
+    history
+      .filter(h => h.content && h.content.trim())
+      .forEach(h => {
+        messages.push({
+          role: h.role === 'user' ? 'user' : 'assistant',
+          content: h.content
+        })
+      })
+    
+    // Add current message with instruction embedded
+    const enhancedMessage = history.length === 0 
+      ? `You are a helpful Study Assistant. Provide clear responses in plain text without markdown formatting (no # headers, ** bold, or * bullets). Use simple paragraphs.\n\nUser question: ${message}`
+      : message
+    
+    messages.push({ role: 'user', content: enhancedMessage })
     
     const response = await withRetry(() => callAI(messages, { maxTokens: 1000 }))
     res.json({ success: true, response })
