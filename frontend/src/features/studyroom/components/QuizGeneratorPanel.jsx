@@ -2,6 +2,23 @@ import { useState, useRef, useEffect } from 'react'
 import { generateQuiz } from '../../../lib/api'
 import { getSocket } from '../../../lib/socket'
 
+// Render question text — splits out fenced code blocks for proper display
+function renderQuestion(text) {
+  if (!text) return null
+  const parts = text.split(/(```[\w]*\n[\s\S]*?```)/g)
+  return parts.map((part, i) => {
+    const codeMatch = part.match(/^```([\w]*)\n([\s\S]*?)```$/)
+    if (codeMatch) {
+      return (
+        <pre key={i} className="mt-2 mb-1 bg-gray-900 text-green-300 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre leading-relaxed">
+          <code>{codeMatch[2]}</code>
+        </pre>
+      )
+    }
+    return <span key={i}>{part}</span>
+  })
+}
+
 export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQuiz, quizResults }) {
   const [file, setFile] = useState(null)
   const [topic, setTopic] = useState('')
@@ -454,7 +471,7 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
             {usePerQuestion ? (
               <div className="border border-gray-200 rounded-lg p-3">
                 <p className="text-sm font-medium text-gray-900 mb-2">
-                  {currentQ + 1}. {questions[currentQ]?.question}
+                  {currentQ + 1}. {renderQuestion(questions[currentQ]?.question)}
                 </p>
                 <div className="space-y-1.5">
                   {questions[currentQ]?.options.map((opt, oi) => (
@@ -505,7 +522,7 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
                 {questions.map((q, qi) => (
                   <div key={qi} className="border border-gray-200 rounded-lg p-3">
                     <p className="text-sm font-medium text-gray-900 mb-2">
-                      {qi + 1}. {q.question}
+                      {qi + 1}. {renderQuestion(q.question)}
                     </p>
                     <div className="space-y-1.5">
                       {q.options.map((opt, oi) => (
@@ -588,7 +605,7 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
               return (
                 <div key={qi} className={`border rounded-lg p-3 ${isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
                   <p className="text-sm font-medium text-gray-900 mb-1">
-                    {isCorrect ? '✅' : '❌'} {qi + 1}. {q.question}
+                    {isCorrect ? '✅' : '❌'} {qi + 1}. {renderQuestion(q.question)}
                   </p>
                   <p className="text-xs text-gray-600">
                     Your answer: <span className={isCorrect ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>

@@ -40,7 +40,22 @@ export default function QuizGenerator() {
     explanation: ''
   })
 
-  const generateQuizCode = () => {
+  // Render question text — splits out fenced code blocks for proper display
+  const renderQuestion = (text) => {
+    if (!text) return null
+    const parts = text.split(/(```[\w]*\n[\s\S]*?```)/g)
+    return parts.map((part, i) => {
+      const codeMatch = part.match(/^```([\w]*)\n([\s\S]*?)```$/)
+      if (codeMatch) {
+        return (
+          <pre key={i} className="mt-3 mb-2 bg-gray-900 text-green-300 rounded-lg p-4 text-sm font-mono overflow-x-auto whitespace-pre leading-relaxed">
+            <code>{codeMatch[2]}</code>
+          </pre>
+        )
+      }
+      return <span key={i}>{part}</span>
+    })
+  }
     return Math.random().toString(36).substring(2, 8).toUpperCase()
   }
 
@@ -996,7 +1011,7 @@ export default function QuizGenerator() {
                 </div>
               </div>
               <div className="mb-6">
-                <p className="text-lg font-semibold mb-4 text-gray-900">{questions[currentQ]?.question}</p>
+                <p className="text-lg font-semibold mb-4 text-gray-900">{renderQuestion(questions[currentQ]?.question)}</p>
                 <div className="space-y-3">
                   {questions[currentQ]?.options.map((opt, i) => (
                     <button
@@ -1167,7 +1182,7 @@ export default function QuizGenerator() {
                   <h3 className="text-lg font-bold text-gray-900 pb-3 border-b-2 border-[#F2CF7E]">Answer Review</h3>
                   {questions.map((q, i) => (
                     <div key={i} className="p-4 rounded-lg border-2 border-gray-200">
-                      <p className="font-semibold mb-2">{i+1}. {q.question}</p>
+                      <p className="font-semibold mb-2">{i+1}. {renderQuestion(q.question)}</p>
                       {q.options.map((opt, j) => (
                         <div key={j} className={`p-2 rounded mb-1 ${
                           j === q.correct ? 'bg-green-100 text-green-800 border-2 border-green-300' :

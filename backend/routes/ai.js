@@ -112,12 +112,20 @@ router.post('/quiz', upload.single('pdf'), async (req, res) => {
     
     const prompt = `Generate ${numQuestions} ${difficulty} difficulty multiple-choice questions about: ${content}
 
-Format as JSON array:
+CRITICAL FORMATTING RULES:
+- Return ONLY a raw JSON array. No markdown, no backticks, no extra text.
+- If a question contains code, wrap it in triple backticks with the language tag inside the "question" field, like this:
+  "question": "What is the output of the following code?\\n\`\`\`python\\nx = [1, 2, 3]\\ny = x\\ny[0] = 4\\nprint(x)\\n\`\`\`"
+- Preserve ALL indentation in code snippets using \\n and spaces (not tabs).
+- Options must be plain text strings, never contain raw code blocks.
+- Each question must have exactly 4 options and one correct answer (0-indexed).
+
+JSON structure:
 [{
-  "question": "Question text",
-  "options": ["A) option1", "B) option2", "C) option3", "D) option4"],
+  "question": "Question text (use \\n\`\`\`lang\\n...code...\\n\`\`\` for code snippets)",
+  "options": ["option1", "option2", "option3", "option4"],
   "correct": 0,
-  "explanation": "Why this is correct"
+  "explanation": "Clear explanation of why the correct answer is right"
 }]`
     
     const text = await withRetry(() => callAI([{ role: 'user', content: prompt }]))

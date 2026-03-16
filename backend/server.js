@@ -493,6 +493,9 @@ Rules:
 - Questions should test understanding, not just memorization
 - Include a mix of easy, medium, and hard questions
 - Make distractors plausible but clearly wrong
+- If a question involves code, embed it in the "question" field using triple backticks with the language tag: \`\`\`python\\n...code with proper indentation...\\n\`\`\`
+- Preserve ALL code indentation using \\n and spaces inside the JSON string
+- Options must always be plain text, never raw code blocks
 - Return ONLY the JSON array, no other text`
 
     const responseText = await withRetry(() => callAI([{ role: 'user', content: prompt }]))
