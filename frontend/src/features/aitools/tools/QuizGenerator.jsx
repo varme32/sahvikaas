@@ -155,7 +155,63 @@ export default function QuizGenerator() {
     }
   }
 
-  const [joinLoading, setJoinLoading] = useState(false)
+  // Host management state
+  const [editingScore, setEditingScore] = useState(null) // participantName being edited
+  const [editScoreValue, setEditScoreValue] = useState('')
+  const [hostPolling, setHostPolling] = useState(false)
+  const [activeTab, setActiveTab] = useState('leaderboard') // 'leaderboard' | 'questions'
+
+  // Poll leaderboard as host (live updates when participants submit)
+  useEffect(() => {
+    if (!hostPolling || !quizCode) return
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiRequest(`/api/quiz/results/${quizCode}`)
+        if (res.results) {
+          setParticipants(res.results.map(r => ({
+            name: r.participantName, score: r.score, total: r.total,
+            percentage: r.percentage, completedAt: r.submittedAt
+          })))
+        }
+      } catch (e) { /* ignore */ }
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [hostPolling, quizCode])
+
+  const handleHostStartManaging = () => {
+    setQuizStarted(true)
+    setHostPolling(true)
+  }
+
+  const handleEditScore = async (participantName) => {
+    const newScore = parseInt(editScoreValue)
+    const p = participants.find(p => p.name === participantName)
+    if (isNaN(newScore) || newScore < 0 || newScore > p.total) return
+    try {
+      const res = await apiRequest(`/api/quiz/results/${quizCode}/${encodeURIComponent(participantName)}`, {
+        method: 'PATCH', body: { score: newScore }
+      })
+      if (res.results) setParticipants(res.results.map(r => ({
+        name: r.participantName, score: r.score, total: r.total,
+        percentage: r.percentage, completedAt: r.submittedAt
+      })))
+    } catch (e) { alert('Failed to update score') }
+    setEditingScore(null)
+    setEditScoreValue('')
+  }
+
+  const handleRemoveResponse = async (participantName) => {
+    if (!confirm(`Remove ${participantName}'s response?`)) return
+    try {
+      const res = await apiRequest(`/api/quiz/results/${quizCode}/${encodeURIComponent(participantName)}`, {
+        method: 'DELETE'
+      })
+      if (res.results) setParticipants(res.results.map(r => ({
+        name: r.participantName, score: r.score, total: r.total,
+        percentage: r.percentage, completedAt: r.submittedAt
+      })))
+    } catch (e) { alert('Failed to remove response') }
+  }
   const [joinError, setJoinError] = useState('')
   const [leaderboardPolling, setLeaderboardPolling] = useState(false)
 
@@ -922,70 +978,215 @@ export default function QuizGenerator() {
           </div>
         )}
 
-        {/* Host Dashboard - Before Quiz Starts */}
-        {mode === 'host' && questions.length > 0 && !quizStarted && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-br from-[#F2CF7E] to-[#e0bd6c] rounded-xl p-8 text-center shadow-lg">
-              <h2 className="text-xl font-bold text-black mb-2">Quiz Code</h2>
-              <div className="text-6xl font-bold text-black tracking-widest mb-4">{quizCode}</div>
-              <p className="text-black/80 text-sm">Share this code with participants to join</p>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 pb-3 border-b-2 border-[#F2CF7E]">Quiz Information</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-black">{questions.length}</div>
-                  <div className="text-sm text-gray-600 mt-1">Questions</div>
+        {/* Host Dashboard - Waiting / Managing */}
+        {mode === 'host' && questions.length > 0 && (
+          <div className="space-y-4">
+            {/* Quiz Code Banner */}
+            <div className="bg-gradient-to-br from-[#F2CF7E] to-[#e0bd6c] rounded-xl p-6 shadow-lg">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-black/70 mb-1">Quiz Code — share with participants</p>
+                  <div className="text-5xl font-bold text-black tracking-widest">{quizCode}</div>
                 </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-black capitalize">{difficulty}</div>
-                  <div className="text-sm text-gray-600 mt-1">Difficulty</div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-black">{topic.substring(0, 15)}{topic.length > 15 ? '...' : ''}</div>
-                  <div className="text-sm text-gray-600 mt-1">Topic</div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-black">{participants.length}</div>
-                  <div className="text-sm text-gray-600 mt-1">Participants</div>
+                <div className="flex flex-col gap-2 text-sm text-black/80">
+                  <span><i className="ri-question-line mr-1" />{questions.length} questions</span>
+                  {timeLimit > 0 && <span><i className="ri-time-line mr-1" />{timeLimit}s per question</span>}
+                  {overallTimeLimit > 0 && <span><i className="ri-timer-line mr-1" />{overallTimeLimit} min total</span>}
+                  <span><i className="ri-group-line mr-1" />{participants.length} submitted</span>
                 </div>
               </div>
-              {(timeLimit > 0 || overallTimeLimit > 0) && (
-                <div className="mt-4 p-4 bg-[#F2CF7E]/10 rounded-lg border border-[#F2CF7E]">
-                  <h4 className="text-sm font-bold text-gray-900 mb-2 flex items-center">
-                    <i className="ri-time-line mr-2" />
-                    Time Limit
-                  </h4>
-                  <div className="text-sm text-gray-700">
-                    {timeLimit > 0 && <p>{timeLimit} seconds per question</p>}
-                    {overallTimeLimit > 0 && <p>{overallTimeLimit} minutes for entire quiz</p>}
-                  </div>
+              {!quizStarted && (
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={() => setQuestions([])}
+                    className="px-5 py-2 bg-black/10 hover:bg-black/20 text-black font-semibold rounded-lg text-sm transition-colors"
+                  >
+                    <i className="ri-close-line mr-1" />Cancel
+                  </button>
+                  <button
+                    onClick={handleHostStartManaging}
+                    className="flex-1 py-2 bg-black text-[#F2CF7E] font-bold rounded-lg hover:bg-black/80 transition-colors text-sm"
+                  >
+                    <i className="ri-dashboard-line mr-2" />Open Management Dashboard
+                  </button>
                 </div>
               )}
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => setQuestions([])}
-                className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-white hover:border-gray-400 transition-colors"
-              >
-                <i className="ri-close-line mr-2" />
-                Cancel
-              </button>
-              <button
-                onClick={handleStartQuiz}
-                className="flex-1 py-3 bg-[#F2CF7E] text-black font-bold rounded-lg hover:bg-[#e0bd6c] transition-colors shadow-md"
-              >
-                <i className="ri-play-circle-line mr-2" />
-                Start Quiz (Take as Host)
-              </button>
-            </div>
+            {/* Management Dashboard */}
+            {quizStarted && (
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Tabs */}
+                <div className="flex border-b-2 border-gray-100">
+                  {[
+                    { id: 'leaderboard', label: 'Leaderboard', icon: 'ri-trophy-line' },
+                    { id: 'questions', label: 'Questions', icon: 'ri-list-check' },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors ${
+                        activeTab === tab.id
+                          ? 'border-b-2 border-[#F2CF7E] text-black bg-[#F2CF7E]/5'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      <i className={tab.icon} />{tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-6">
+                  {/* Leaderboard Tab */}
+                  {activeTab === 'leaderboard' && (
+                    <div className="space-y-4">
+                      {/* Stats row */}
+                      {participants.length > 0 && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                          {[
+                            { label: 'Submitted', value: participants.length },
+                            { label: 'Avg Score', value: (participants.reduce((s,p)=>s+p.score,0)/participants.length).toFixed(1) },
+                            { label: 'Highest', value: Math.max(...participants.map(p=>p.score)) },
+                            { label: 'Pass Rate', value: Math.round(participants.filter(p=>p.percentage>=60).length/participants.length*100)+'%' },
+                          ].map(stat => (
+                            <div key={stat.label} className="text-center p-3 bg-[#F2CF7E]/10 rounded-lg border border-[#F2CF7E]/30">
+                              <div className="text-xl font-bold text-black">{stat.value}</div>
+                              <div className="text-xs text-gray-600 mt-0.5">{stat.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {participants.length === 0 ? (
+                        <div className="text-center py-12 text-gray-400">
+                          <i className="ri-hourglass-line text-5xl mb-3 block" />
+                          <p className="font-medium">Waiting for participants to submit...</p>
+                          <p className="text-sm mt-1">Live updates every 4 seconds</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {[...participants].sort((a,b)=>b.percentage-a.percentage).map((p, idx) => (
+                            <div key={p.name} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-[#F2CF7E]/50 transition-colors">
+                              {/* Rank badge */}
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
+                                idx === 0 ? 'bg-yellow-400 text-yellow-900' :
+                                idx === 1 ? 'bg-gray-300 text-gray-700' :
+                                idx === 2 ? 'bg-orange-300 text-orange-900' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>{idx + 1}</div>
+
+                              {/* Name + time */}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-gray-900 truncate">{p.name}</div>
+                                <div className="text-xs text-gray-400">{new Date(p.completedAt).toLocaleTimeString()}</div>
+                              </div>
+
+                              {/* Score display or edit */}
+                              {editingScore === p.name ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    value={editScoreValue}
+                                    onChange={e => setEditScoreValue(e.target.value)}
+                                    min="0"
+                                    max={p.total}
+                                    className="w-16 h-8 px-2 text-center border-2 border-[#F2CF7E] rounded-lg text-sm font-bold focus:outline-none"
+                                    autoFocus
+                                    onKeyDown={e => { if (e.key === 'Enter') handleEditScore(p.name); if (e.key === 'Escape') setEditingScore(null) }}
+                                  />
+                                  <span className="text-xs text-gray-500">/{p.total}</span>
+                                  <button onClick={() => handleEditScore(p.name)} className="w-7 h-7 bg-green-500 text-white rounded-lg flex items-center justify-center hover:bg-green-600">
+                                    <i className="ri-check-line text-sm" />
+                                  </button>
+                                  <button onClick={() => setEditingScore(null)} className="w-7 h-7 bg-gray-200 text-gray-600 rounded-lg flex items-center justify-center hover:bg-gray-300">
+                                    <i className="ri-close-line text-sm" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <div className="text-right">
+                                    <div className="font-bold text-black">{p.score}/{p.total}</div>
+                                    <div className={`text-xs font-semibold ${p.percentage>=80?'text-green-600':p.percentage>=60?'text-yellow-600':'text-red-600'}`}>{p.percentage}%</div>
+                                  </div>
+                                  <button
+                                    onClick={() => { setEditingScore(p.name); setEditScoreValue(String(p.score)) }}
+                                    className="w-7 h-7 bg-[#F2CF7E]/20 text-black rounded-lg flex items-center justify-center hover:bg-[#F2CF7E]/50 transition-colors"
+                                    title="Edit score"
+                                  >
+                                    <i className="ri-edit-line text-sm" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveResponse(p.name)}
+                                    className="w-7 h-7 bg-red-50 text-red-500 rounded-lg flex items-center justify-center hover:bg-red-100 transition-colors"
+                                    title="Remove response"
+                                  >
+                                    <i className="ri-delete-bin-line text-sm" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Questions Tab */}
+                  {activeTab === 'questions' && (
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                      {questions.map((q, i) => (
+                        <div key={i} className="p-4 rounded-lg border-2 border-gray-200">
+                          <p className="font-semibold text-gray-900 mb-3">
+                            <span className="text-[#F2CF7E] mr-2">Q{i+1}.</span>
+                            {renderQuestion(q.question)}
+                          </p>
+                          <div className="space-y-1.5">
+                            {q.options.map((opt, j) => (
+                              <div key={j} className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${
+                                j === q.correct ? 'bg-green-50 border border-green-200 text-green-800 font-medium' : 'bg-gray-50 text-gray-600'
+                              }`}>
+                                {j === q.correct && <i className="ri-checkbox-circle-fill text-green-600 flex-shrink-0" />}
+                                {opt}
+                              </div>
+                            ))}
+                          </div>
+                          {q.explanation && (
+                            <p className="mt-2 text-xs text-gray-500 flex items-start gap-1">
+                              <i className="ri-information-line flex-shrink-0 mt-0.5" />{q.explanation}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <i className="ri-refresh-line" />Live updates every 4s
+                  </span>
+                  <button
+                    onClick={() => {
+                      setHostPolling(false)
+                      setQuestions([])
+                      setMode('select')
+                      setQuizCode('')
+                      setQuizStarted(false)
+                      setParticipants([])
+                    }}
+                    className="px-4 py-2 bg-red-50 text-red-600 font-semibold rounded-lg text-sm hover:bg-red-100 transition-colors"
+                  >
+                    <i className="ri-stop-circle-line mr-1" />End Quiz
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Quiz Taking Interface */}
-        {((mode === 'solo' || (mode === 'host' && quizStarted) || (mode === 'participant' && isJoined)) && questions.length > 0 && !showResults) && (
+        {/* Quiz Taking Interface — Solo and Participant only */}
+        {((mode === 'solo' || (mode === 'participant' && isJoined)) && questions.length > 0 && !showResults) && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="p-6 sm:p-8">
               <div className="flex justify-between items-center mb-6">
@@ -1064,8 +1265,8 @@ export default function QuizGenerator() {
           </div>
         )}
 
-        {/* Results Screen */}
-        {showResults && (
+        {/* Results Screen — Solo and Participant only */}
+        {showResults && mode !== 'host' && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="p-6 sm:p-8">

@@ -368,6 +368,41 @@ app.get('/api/quiz/results/:code', async (req, res) => {
   }
 })
 
+// Host: edit a participant's score
+app.patch('/api/quiz/results/:code/:participantName', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    const entry = quiz.results.find(r => r.participantName === decodeURIComponent(req.params.participantName))
+    if (!entry) return res.status(404).json({ error: 'Participant not found' })
+    const { score } = req.body
+    entry.score = score
+    entry.percentage = Math.round((score / entry.total) * 100)
+    quiz.results.sort((a, b) => b.percentage - a.percentage)
+    quiz.markModified('results')
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz edit score error:', err.message)
+    res.status(500).json({ error: 'Failed to edit score' })
+  }
+})
+
+// Host: remove a participant's response
+app.delete('/api/quiz/results/:code/:participantName', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    quiz.results = quiz.results.filter(r => r.participantName !== decodeURIComponent(req.params.participantName))
+    quiz.markModified('results')
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz remove response error:', err.message)
+    res.status(500).json({ error: 'Failed to remove response' })
+  }
+})
+
 // ---- AI ASSISTANT (Chat) ----
 app.post('/api/ai/chat', async (req, res) => {
   try {
