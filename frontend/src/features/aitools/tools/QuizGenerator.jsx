@@ -62,7 +62,19 @@ export default function QuizGenerator() {
     setManualQuestions(manualQuestions.filter((_, i) => i !== index))
   }
 
-  const finalizeManualQuiz = () => {
+  // Register quiz code with backend so participants can fetch questions
+  const registerQuizCode = async (code, qs) => {
+    try {
+      await apiRequest('/api/quiz/register', {
+        method: 'POST',
+        body: { code, questions: qs, hostName: 'Host' }
+      })
+    } catch (e) {
+      console.error('Failed to register quiz code', e)
+    }
+  }
+
+  const finalizeManualQuiz = async () => {
     if (manualQuestions.length === 0) {
       alert('Please add at least one question')
       return
@@ -72,6 +84,7 @@ export default function QuizGenerator() {
       const code = generateQuizCode()
       setQuizCode(code)
       setQuizStarted(false)
+      await registerQuizCode(code, manualQuestions)
     } else {
       setCurrentQ(0)
       setAnswers({})
@@ -93,12 +106,14 @@ export default function QuizGenerator() {
         method: 'POST',
         body: formData
       })
-      setQuestions(res.questions || [])
+      const qs = res.questions || []
+      setQuestions(qs)
       
       if (mode === 'host') {
         const code = generateQuizCode()
         setQuizCode(code)
         setQuizStarted(false)
+        await registerQuizCode(code, qs)
       } else {
         setCurrentQ(0)
         setAnswers({})
@@ -123,12 +138,24 @@ export default function QuizGenerator() {
     }
   }
 
-  const handleJoinQuiz = () => {
-    if (!participantName.trim() || !joinCode.trim()) return
-    // In a real app, this would validate the code with backend
-    setIsJoined(true)
-    // Simulate getting quiz questions
-    alert(`Joined quiz with code: ${joinCode}`)
+  const [joinLoading, setJoinLoading] = useState(false)
+  const [joinError, setJoinError] = useState('')
+
+  const handleJoinQuiz = async () => {
+    if (!participantName.trim() || joinCode.length !== 6) return
+    setJoinLoading(true)
+    setJoinError('')
+    try {
+      const res = await apiRequest(`/api/quiz/join/${joinCode.toUpperCase()}`)
+      setQuestions(res.questions || [])
+      setCurrentQ(0)
+      setAnswers({})
+      setShowResults(false)
+      setIsJoined(true)
+    } catch (err) {
+      setJoinError(err.message || 'Quiz not found. Check the code and try again.')
+    }
+    setJoinLoading(false)
   }
 
   const handleAnswer = (qIndex, optionIndex) => {
@@ -144,21 +171,32 @@ export default function QuizGenerator() {
     }
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const finalScore = Object.entries(answers).filter(([qIdx, ans]) => 
       questions[qIdx]?.correct === ans
     ).length
     
     if (mode === 'participant') {
-      // Add participant to leaderboard (in real app, send to backend)
-      const newParticipant = {
-        name: participantName,
-        score: finalScore,
-        total: questions.length,
-        percentage: Math.round((finalScore / questions.length) * 100),
-        completedAt: new Date().toISOString()
+      const pct = Math.round((finalScore / questions.length) * 100)
+      // Post result to backend so host leaderboard updates
+      try {
+        const res = await apiRequest(`/api/quiz/submit/${joinCode.toUpperCase()}`, {
+          method: 'POST',
+          body: { participantName, score: finalScore, total: questions.length, percentage: pct }
+        })
+        // Update local leaderboard from server response
+        if (res.results) {
+          setParticipants(res.results.map(r => ({
+            name: r.participantName,
+            score: r.score,
+            total: r.total,
+            percentage: r.percentage,
+            completedAt: r.submittedAt
+          })))
+        }
+      } catch (e) {
+        // Still show results even if submit fails
       }
-      setParticipants([...participants, newParticipant])
     }
     
     setShowResults(true)
@@ -637,6 +675,11 @@ export default function QuizGenerator() {
                   maxLength={6}
                   className="w-full h-12 px-4 rounded-lg border-2 border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors uppercase tracking-widest text-center text-2xl font-bold"
                 />
+                {joinError && (
+                  <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                    <i className="ri-error-warning-line" />{joinError}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -649,11 +692,14 @@ export default function QuizGenerator() {
               </button>
               <button
                 onClick={handleJoinQuiz}
-                disabled={!participantName.trim() || joinCode.length !== 6}
+                disabled={joinLoading || !participantName.trim() || joinCode.length !== 6}
                 className="flex-1 py-3 bg-[#F2CF7E] text-black font-bold rounded-lg hover:bg-[#e0bd6c] transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <i className="ri-login-circle-line mr-2" />
-                Join Quiz
+                {joinLoading ? (
+                  <><i className="ri-loader-4-line animate-spin mr-2" />Joining...</>
+                ) : (
+                  <><i className="ri-login-circle-line mr-2" />Join Quiz</>
+                )}
               </button>
             </div>
           </div>

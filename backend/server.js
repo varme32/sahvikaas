@@ -88,6 +88,21 @@ const rooms = new Map()
 //   points: Map<userName, { points, activities: [] }>,
 // }
 
+// =============================================
+// STANDALONE QUIZ CODE REGISTRY
+// =============================================
+// Stores quizzes created from the AI Tools page (not study room)
+// quizCode -> { questions, hostName, createdAt, results: [] }
+const quizCodeRegistry = new Map()
+
+// Auto-expire quiz codes after 2 hours
+setInterval(() => {
+  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000
+  for (const [code, quiz] of quizCodeRegistry) {
+    if (quiz.createdAt < twoHoursAgo) quizCodeRegistry.delete(code)
+  }
+}, 10 * 60 * 1000)
+
 function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
@@ -299,6 +314,48 @@ app.get('/api/health', (req, res) => {
 // WebRTC ICE configuration
 app.get('/api/webrtc/ice', (req, res) => {
   res.json(getIceConfig())
+})
+
+// ─── STANDALONE QUIZ CODE ENDPOINTS ───
+// Host registers a quiz with a code
+app.post('/api/quiz/register', (req, res) => {
+  const { code, questions, hostName } = req.body
+  if (!code || !questions?.length) {
+    return res.status(400).json({ error: 'code and questions are required' })
+  }
+  quizCodeRegistry.set(code.toUpperCase(), {
+    questions,
+    hostName: hostName || 'Host',
+    createdAt: Date.now(),
+    results: [],
+  })
+  res.json({ success: true })
+})
+
+// Participant fetches quiz by code
+app.get('/api/quiz/join/:code', (req, res) => {
+  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
+  if (!quiz) return res.status(404).json({ error: 'Quiz not found. Check the code and try again.' })
+  res.json({ questions: quiz.questions, hostName: quiz.hostName })
+})
+
+// Participant submits result
+app.post('/api/quiz/submit/:code', (req, res) => {
+  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
+  if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+  const { participantName, score, total, percentage } = req.body
+  // Remove previous submission from same participant
+  quiz.results = quiz.results.filter(r => r.participantName !== participantName)
+  quiz.results.push({ participantName, score, total, percentage, submittedAt: new Date().toISOString() })
+  quiz.results.sort((a, b) => b.percentage - a.percentage)
+  res.json({ success: true, results: quiz.results })
+})
+
+// Get leaderboard for a quiz code
+app.get('/api/quiz/results/:code', (req, res) => {
+  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
+  if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+  res.json({ results: quiz.results })
 })
 
 // ---- AI ASSISTANT (Chat) ----
