@@ -1271,14 +1271,19 @@ io.on('connection', (socket) => {
     // Remove any previous submission from same user
     room.quizResults = room.quizResults.filter(r => r.userName !== result.userName)
     room.quizResults.push(result)
-    // Sort by score desc, then time asc
-    room.quizResults.sort((a, b) => b.score - a.score || a.timeTaken - b.timeTaken)
+    // Sort by percentage desc (use score or correct, whichever is present)
+    room.quizResults.sort((a, b) => {
+      const aScore = a.percentage ?? (a.score ?? a.correct ?? 0)
+      const bScore = b.percentage ?? (b.score ?? b.correct ?? 0)
+      return bScore - aScore
+    })
     io.to(meetingId).emit('quiz-results', room.quizResults)
 
-    awardPoints(room, result.userName, result.score, 'Quiz score')
+    const pts = result.score ?? result.correct ?? 0
+    awardPoints(room, result.userName, pts, 'Quiz score')
     io.to(meetingId).emit('points-updated', { leaderboard: getLeaderboard(room) })
 
-    console.log(`📝 [${meetingId}] ${result.userName} submitted quiz: ${result.score}/${result.total}`)
+    console.log(`📝 [${meetingId}] ${result.userName} submitted quiz: ${result.correct}/${result.total}`)
   })
 
   socket.on('quiz-end', ({ meetingId }) => {

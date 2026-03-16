@@ -7,59 +7,105 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
   const [topic, setTopic] = useState('')
   const [numQuestions, setNumQuestions] = useState(10)
   const [timeMinutes, setTimeMinutes] = useState(15)
-  const [stage, setStage] = useState('upload') // upload | loading | quiz | results | leaderboard
+  const [perQuestionSeconds, setPerQuestionSeconds] = useState(30) // per-question timer
+  const [usePerQuestion, setUsePerQuestion] = useState(false) // toggle per-question vs overall
+  const [stage, setStage] = useState('upload') // upload | loading | quiz | results
   const [questions, setQuestions] = useState([])
   const [answers, setAnswers] = useState({})
-  const [timeLeft, setTimeLeft] = useState(0)
+  const [currentQ, setCurrentQ] = useState(0) // current question index for per-question mode
+  const [timeLeft, setTimeLeft] = useState(0) // overall timer
+  const [qTimeLeft, setQTimeLeft] = useState(0) // per-question timer
   const [score, setScore] = useState(null)
   const [error, setError] = useState('')
   const [hasSubmitted, setHasSubmitted] = useState(false)
   const timerRef = useRef(null)
+  const qTimerRef = useRef(null)
   const fileRef = useRef(null)
+  const answersRef = useRef(answers)
+  const questionsRef = useRef(questions)
+  const currentQRef = useRef(currentQ)
+
+  // Keep refs in sync so timer callbacks always have latest values
+  useEffect(() => { answersRef.current = answers }, [answers])
+  useEffect(() => { questionsRef.current = questions }, [questions])
+  useEffect(() => { currentQRef.current = currentQ }, [currentQ])
 
   useEffect(() => {
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (qTimerRef.current) clearInterval(qTimerRef.current)
+    }
   }, [])
 
   // When an active quiz is broadcast, participants auto-enter quiz mode
+  // Also handles initial mount when activeQuiz is already set (late joiners)
   useEffect(() => {
     if (activeQuiz && !hasSubmitted) {
       setQuestions(activeQuiz.questions)
+      questionsRef.current = activeQuiz.questions
       setAnswers({})
+      setCurrentQ(0)
+      currentQRef.current = 0
       setTimeLeft(activeQuiz.timeMinutes * 60)
       setScore(null)
       setStage('quiz')
     }
     if (!activeQuiz && stage === 'quiz') {
-      // Quiz was ended by host
-      if (!hasSubmitted) {
-        handleSubmit()
-      }
+      if (!hasSubmitted) doSubmit()
     }
   }, [activeQuiz])
 
   // Reset hasSubmitted when a new quiz starts
   useEffect(() => {
-    if (activeQuiz) {
-      setHasSubmitted(false)
-    }
+    if (activeQuiz) setHasSubmitted(false)
   }, [activeQuiz?.id])
 
+  // Overall countdown timer (when not using per-question mode)
   useEffect(() => {
-    if (stage === 'quiz' && timeLeft > 0) {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (stage === 'quiz' && timeLeft > 0 && !usePerQuestion) {
       timerRef.current = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current)
-            handleSubmit()
+            doSubmit()
             return 0
           }
           return prev - 1
         })
       }, 1000)
-      return () => clearInterval(timerRef.current)
     }
-  }, [stage])
+    return () => clearInterval(timerRef.current)
+  }, [stage, usePerQuestion])
+
+  // Per-question countdown timer
+  useEffect(() => {
+    if (qTimerRef.current) clearInterval(qTimerRef.current)
+    if (stage === 'quiz' && usePerQuestion && qTimeLeft > 0) {
+      qTimerRef.current = setInterval(() => {
+        setQTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(qTimerRef.current)
+            // Auto-advance to next question or submit if last
+            const qs = questionsRef.current
+            const cq = currentQRef.current
+            if (cq < qs.length - 1) {
+              const next = cq + 1
+              setCurrentQ(next)
+              currentQRef.current = next
+              setQTimeLeft(perQuestionSeconds)
+              return perQuestionSeconds
+            } else {
+              doSubmit()
+              return 0
+            }
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+    return () => clearInterval(qTimerRef.current)
+  }, [stage, usePerQuestion, currentQ])
 
   const handleFileUpload = (e) => {
     const f = e.target.files[0]
@@ -80,8 +126,12 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
         throw new Error('No questions generated. Try a different PDF or topic.')
       }
       setQuestions(data.questions)
+      questionsRef.current = data.questions
       setAnswers({})
+      setCurrentQ(0)
+      currentQRef.current = 0
       setTimeLeft(timeMinutes * 60)
+      if (usePerQuestion) setQTimeLeft(perQuestionSeconds)
       setStage('quiz')
 
       // Broadcast quiz to all participants via socket
@@ -93,6 +143,7 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
             id: Date.now().toString(),
             questions: data.questions,
             timeMinutes,
+            perQuestionSeconds: usePerQuestion ? perQuestionSeconds : 0,
             createdBy: userName,
           },
         })
@@ -103,7 +154,6 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
     }
   }
 
-  // Personal practice quiz (anyone can do solo)
   const startPersonalQuiz = async () => {
     if (!file && !topic.trim()) {
       setError('Please upload a PDF or enter a topic.')
@@ -118,8 +168,12 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
         throw new Error('No questions generated. Try a different PDF or topic.')
       }
       setQuestions(data.questions)
+      questionsRef.current = data.questions
       setAnswers({})
+      setCurrentQ(0)
+      currentQRef.current = 0
       setTimeLeft(timeMinutes * 60)
+      if (usePerQuestion) setQTimeLeft(perQuestionSeconds)
       setStage('quiz')
     } catch (err) {
       setError(`Failed to generate quiz: ${err.message}`)
@@ -127,40 +181,51 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
     }
   }
 
-  const handleSubmit = () => {
+  // Use a stable ref-based submit so timers can call it without stale closures
+  const doSubmit = () => {
     if (timerRef.current) clearInterval(timerRef.current)
+    if (qTimerRef.current) clearInterval(qTimerRef.current)
+    const currentAnswers = answersRef.current
+    const currentQuestions = questionsRef.current.length > 0
+      ? questionsRef.current
+      : (activeQuiz?.questions || [])
     let correct = 0
-    const currentQuestions = questions.length > 0 ? questions : (activeQuiz?.questions || [])
     currentQuestions.forEach((q, i) => {
-      if (answers[i] === q.correct) correct++
+      if (currentAnswers[i] === q.correct) correct++
     })
     const result = { correct, total: currentQuestions.length }
     setScore(result)
     setStage('results')
     setHasSubmitted(true)
 
-    // Submit result to room via socket
     const socket = getSocket()
     if (socket?.connected && roomId) {
       socket.emit('quiz-submit', {
         meetingId: roomId,
         result: {
           userName,
-          correct: result.correct,
-          total: result.total,
-          percentage: Math.round((result.correct / result.total) * 100),
-          answers,
+          score: correct,   // backend sorts by .score
+          correct,
+          total: currentQuestions.length,
+          percentage: Math.round((correct / currentQuestions.length) * 100),
+          answers: currentAnswers,
         },
       })
     }
   }
 
+  // Wrapper so JSX onClick still works
+  const handleSubmit = () => doSubmit()
+
   const resetQuiz = () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (qTimerRef.current) clearInterval(qTimerRef.current)
     setFile(null)
     setTopic('')
     setStage('upload')
     setQuestions([])
     setAnswers({})
+    setCurrentQ(0)
     setScore(null)
     setError('')
     setHasSubmitted(false)
@@ -277,6 +342,36 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
               </div>
             </div>
 
+            {/* Timer mode toggle */}
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-700">Per-question timer (auto-advance)</span>
+                <button
+                  onClick={() => setUsePerQuestion(v => !v)}
+                  className={`w-10 h-5 rounded-full transition-colors relative ${usePerQuestion ? 'bg-[#F2CF7E]' : 'bg-gray-300'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${usePerQuestion ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              {usePerQuestion && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-600 shrink-0">Seconds per question:</label>
+                  <select
+                    value={perQuestionSeconds}
+                    onChange={e => setPerQuestionSeconds(Number(e.target.value))}
+                    className="flex-1 h-8 px-2 border border-gray-200 rounded text-xs focus:outline-none focus:border-[#F2CF7E]"
+                  >
+                    <option value={15}>15s</option>
+                    <option value={30}>30s</option>
+                    <option value={45}>45s</option>
+                    <option value={60}>1 min</option>
+                    <option value={90}>1.5 min</option>
+                    <option value={120}>2 min</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
             {/* Host can broadcast quiz to all */}
             {isHost && (
               <button
@@ -317,15 +412,34 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
           <div className="space-y-4">
             <div className="sticky top-0 bg-white py-2 z-10 border-b border-gray-100">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">{Object.keys(answers).length} / {questions.length} answered</span>
-                <span className={`text-sm font-mono font-bold ${timeLeft < 60 ? 'text-red-600 animate-pulse' : 'text-gray-700'}`}>
-                  <i className="ri-timer-line mr-1" />{formatTime(timeLeft)}
+                <span className="text-xs text-gray-500">
+                  {usePerQuestion
+                    ? `Q ${currentQ + 1} / ${questions.length}`
+                    : `${Object.keys(answers).length} / ${questions.length} answered`}
                 </span>
+                <div className="flex items-center gap-2">
+                  {/* Per-question countdown */}
+                  {usePerQuestion && (
+                    <span className={`text-sm font-mono font-bold px-2 py-0.5 rounded ${qTimeLeft <= 5 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-[#F2CF7E]/20 text-gray-700'}`}>
+                      <i className="ri-time-line mr-1" />{qTimeLeft}s
+                    </span>
+                  )}
+                  {/* Overall countdown */}
+                  {!usePerQuestion && (
+                    <span className={`text-sm font-mono font-bold ${timeLeft < 60 ? 'text-red-600 animate-pulse' : 'text-gray-700'}`}>
+                      <i className="ri-timer-line mr-1" />{formatTime(timeLeft)}
+                    </span>
+                  )}
+                </div>
               </div>
+              {/* Progress bar */}
               <div className="w-full bg-gray-200 rounded-full h-1 mt-1.5">
                 <div
                   className="bg-[#F2CF7E] h-1 rounded-full transition-all"
-                  style={{ width: `${(Object.keys(answers).length / questions.length) * 100}%` }}
+                  style={{ width: usePerQuestion
+                    ? `${((currentQ + 1) / questions.length) * 100}%`
+                    : `${(Object.keys(answers).length / questions.length) * 100}%`
+                  }}
                 />
               </div>
               {activeQuiz && (
@@ -336,38 +450,91 @@ export default function QuizGeneratorPanel({ roomId, userName, isHost, activeQui
               )}
             </div>
 
-            {questions.map((q, qi) => (
-              <div key={qi} className="border border-gray-200 rounded-lg p-3">
+            {/* Per-question mode: show one question at a time */}
+            {usePerQuestion ? (
+              <div className="border border-gray-200 rounded-lg p-3">
                 <p className="text-sm font-medium text-gray-900 mb-2">
-                  {qi + 1}. {q.question}
+                  {currentQ + 1}. {questions[currentQ]?.question}
                 </p>
                 <div className="space-y-1.5">
-                  {q.options.map((opt, oi) => (
+                  {questions[currentQ]?.options.map((opt, oi) => (
                     <label
                       key={oi}
                       className={`flex items-center gap-2 p-2 rounded-lg text-sm cursor-pointer transition-colors ${
-                        answers[qi] === oi ? 'bg-[#F2CF7E]/10 border border-[#F2CF7E]/30' : 'hover:bg-gray-50 border border-transparent'
+                        answers[currentQ] === oi ? 'bg-[#F2CF7E]/10 border border-[#F2CF7E]/30' : 'hover:bg-gray-50 border border-transparent'
                       }`}
                     >
                       <input
-                        type="radio" name={`q${qi}`}
-                        checked={answers[qi] === oi}
-                        onChange={() => setAnswers(prev => ({ ...prev, [qi]: oi }))}
+                        type="radio" name={`q${currentQ}`}
+                        checked={answers[currentQ] === oi}
+                        onChange={() => setAnswers(prev => ({ ...prev, [currentQ]: oi }))}
                         className="text-black focus:ring-[#F2CF7E]"
                       />
                       <span>{String.fromCharCode(65 + oi)}. {opt}</span>
                     </label>
                   ))}
                 </div>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => { setCurrentQ(q => Math.max(0, q - 1)); setQTimeLeft(perQuestionSeconds) }}
+                    disabled={currentQ === 0}
+                    className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-600 disabled:opacity-40"
+                  >
+                    <i className="ri-arrow-left-line" />
+                  </button>
+                  {currentQ < questions.length - 1 ? (
+                    <button
+                      onClick={() => { setCurrentQ(q => q + 1); setQTimeLeft(perQuestionSeconds) }}
+                      className="flex-1 py-1.5 bg-[#F2CF7E] text-black text-xs font-medium rounded-lg hover:bg-[#e0bd6c]"
+                    >
+                      Next <i className="ri-arrow-right-line ml-1" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSubmit}
+                      className="flex-1 py-1.5 bg-[#F2CF7E] text-black text-xs font-medium rounded-lg hover:bg-[#e0bd6c]"
+                    >
+                      Submit Quiz
+                    </button>
+                  )}
+                </div>
               </div>
-            ))}
-
-            <button
-              onClick={handleSubmit}
-              className="w-full py-2.5 bg-[#F2CF7E] text-white text-sm font-medium rounded-lg hover:bg-[#e0bd6c] transition-colors"
-            >
-              Submit Quiz
-            </button>
+            ) : (
+              /* Overall timer mode: show all questions */
+              <>
+                {questions.map((q, qi) => (
+                  <div key={qi} className="border border-gray-200 rounded-lg p-3">
+                    <p className="text-sm font-medium text-gray-900 mb-2">
+                      {qi + 1}. {q.question}
+                    </p>
+                    <div className="space-y-1.5">
+                      {q.options.map((opt, oi) => (
+                        <label
+                          key={oi}
+                          className={`flex items-center gap-2 p-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                            answers[qi] === oi ? 'bg-[#F2CF7E]/10 border border-[#F2CF7E]/30' : 'hover:bg-gray-50 border border-transparent'
+                          }`}
+                        >
+                          <input
+                            type="radio" name={`q${qi}`}
+                            checked={answers[qi] === oi}
+                            onChange={() => setAnswers(prev => ({ ...prev, [qi]: oi }))}
+                            className="text-black focus:ring-[#F2CF7E]"
+                          />
+                          <span>{String.fromCharCode(65 + oi)}. {opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={handleSubmit}
+                  className="w-full py-2.5 bg-[#F2CF7E] text-white text-sm font-medium rounded-lg hover:bg-[#e0bd6c] transition-colors"
+                >
+                  Submit Quiz
+                </button>
+              </>
+            )}
           </div>
         )}
 
