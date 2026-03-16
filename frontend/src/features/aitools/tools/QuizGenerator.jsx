@@ -212,6 +212,7 @@ export default function QuizGenerator() {
       })))
     } catch (e) { alert('Failed to remove response') }
   }
+  const [joinLoading, setJoinLoading] = useState(false)
   const [joinError, setJoinError] = useState('')
   const [leaderboardPolling, setLeaderboardPolling] = useState(false)
 
