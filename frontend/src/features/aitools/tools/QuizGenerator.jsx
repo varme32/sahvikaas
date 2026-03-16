@@ -67,7 +67,7 @@ export default function QuizGenerator() {
     try {
       await apiRequest('/api/quiz/register', {
         method: 'POST',
-        body: { code, questions: qs, hostName: 'Host' }
+        body: { code, questions: qs, hostName: 'Host', timeLimit }
       })
     } catch (e) {
       console.error('Failed to register quiz code', e)
@@ -140,6 +140,27 @@ export default function QuizGenerator() {
 
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinError, setJoinError] = useState('')
+  const [leaderboardPolling, setLeaderboardPolling] = useState(false)
+
+  // Poll leaderboard after participant submits
+  useEffect(() => {
+    if (!leaderboardPolling || !joinCode) return
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiRequest(`/api/quiz/results/${joinCode.toUpperCase()}`)
+        if (res.results) {
+          setParticipants(res.results.map(r => ({
+            name: r.participantName,
+            score: r.score,
+            total: r.total,
+            percentage: r.percentage,
+            completedAt: r.submittedAt
+          })))
+        }
+      } catch (e) { /* ignore */ }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [leaderboardPolling, joinCode])
 
   const handleJoinQuiz = async () => {
     if (!participantName.trim() || joinCode.length !== 6) return
@@ -148,6 +169,10 @@ export default function QuizGenerator() {
     try {
       const res = await apiRequest(`/api/quiz/join/${joinCode.toUpperCase()}`)
       setQuestions(res.questions || [])
+      if (res.timeLimit > 0) {
+        setTimeLimit(res.timeLimit)
+        setTimeRemaining(res.timeLimit)
+      }
       setCurrentQ(0)
       setAnswers({})
       setShowResults(false)
@@ -194,6 +219,8 @@ export default function QuizGenerator() {
             completedAt: r.submittedAt
           })))
         }
+        // Start polling for live leaderboard updates
+        setLeaderboardPolling(true)
       } catch (e) {
         // Still show results even if submit fails
       }
@@ -1157,6 +1184,7 @@ export default function QuizGenerator() {
               <div className="px-6 sm:px-8 py-6 bg-gradient-to-r from-[#F2CF7E]/10 to-[#F2CF7E]/5 border-t-2 border-[#F2CF7E] flex gap-3">
                 <button 
                   onClick={() => {
+                    setLeaderboardPolling(false)
                     setQuestions([])
                     setMode('select')
                     setQuizCode('')

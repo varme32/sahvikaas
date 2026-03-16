@@ -12,6 +12,7 @@ import { connectDB } from './db.js'
 
 // Model imports
 import Room from './models/Room.js'
+import QuizSession from './models/QuizSession.js'
 
 // Route imports
 import authRoutes from './routes/auth.js'
@@ -88,20 +89,7 @@ const rooms = new Map()
 //   points: Map<userName, { points, activities: [] }>,
 // }
 
-// =============================================
-// STANDALONE QUIZ CODE REGISTRY
-// =============================================
-// Stores quizzes created from the AI Tools page (not study room)
-// quizCode -> { questions, hostName, createdAt, results: [] }
-const quizCodeRegistry = new Map()
-
-// Auto-expire quiz codes after 2 hours
-setInterval(() => {
-  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000
-  for (const [code, quiz] of quizCodeRegistry) {
-    if (quiz.createdAt < twoHoursAgo) quizCodeRegistry.delete(code)
-  }
-}, 10 * 60 * 1000)
+// Quiz codes are now persisted in MongoDB via QuizSession model
 
 function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
   if (!rooms.has(roomId)) {
@@ -316,46 +304,68 @@ app.get('/api/webrtc/ice', (req, res) => {
   res.json(getIceConfig())
 })
 
-// ─── STANDALONE QUIZ CODE ENDPOINTS ───
+// ─── STANDALONE QUIZ CODE ENDPOINTS (MongoDB-backed) ───
 // Host registers a quiz with a code
-app.post('/api/quiz/register', (req, res) => {
-  const { code, questions, hostName } = req.body
-  if (!code || !questions?.length) {
-    return res.status(400).json({ error: 'code and questions are required' })
+app.post('/api/quiz/register', async (req, res) => {
+  try {
+    const { code, questions, hostName, timeLimit } = req.body
+    if (!code || !questions?.length) {
+      return res.status(400).json({ error: 'code and questions are required' })
+    }
+    const upperCode = code.toUpperCase()
+    // Upsert: replace if code already exists (host re-generated)
+    await QuizSession.findOneAndUpdate(
+      { code: upperCode },
+      { code: upperCode, questions, hostName: hostName || 'Host', timeLimit: timeLimit || 0, results: [], createdAt: new Date() },
+      { upsert: true, new: true }
+    )
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Quiz register error:', err.message)
+    res.status(500).json({ error: 'Failed to register quiz' })
   }
-  quizCodeRegistry.set(code.toUpperCase(), {
-    questions,
-    hostName: hostName || 'Host',
-    createdAt: Date.now(),
-    results: [],
-  })
-  res.json({ success: true })
 })
 
 // Participant fetches quiz by code
-app.get('/api/quiz/join/:code', (req, res) => {
-  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
-  if (!quiz) return res.status(404).json({ error: 'Quiz not found. Check the code and try again.' })
-  res.json({ questions: quiz.questions, hostName: quiz.hostName })
+app.get('/api/quiz/join/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found. Check the code and try again.' })
+    res.json({ questions: quiz.questions, hostName: quiz.hostName, timeLimit: quiz.timeLimit || 0 })
+  } catch (err) {
+    console.error('Quiz join error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch quiz' })
+  }
 })
 
 // Participant submits result
-app.post('/api/quiz/submit/:code', (req, res) => {
-  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
-  if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
-  const { participantName, score, total, percentage } = req.body
-  // Remove previous submission from same participant
-  quiz.results = quiz.results.filter(r => r.participantName !== participantName)
-  quiz.results.push({ participantName, score, total, percentage, submittedAt: new Date().toISOString() })
-  quiz.results.sort((a, b) => b.percentage - a.percentage)
-  res.json({ success: true, results: quiz.results })
+app.post('/api/quiz/submit/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    const { participantName, score, total, percentage } = req.body
+    // Remove previous submission from same participant
+    quiz.results = quiz.results.filter(r => r.participantName !== participantName)
+    quiz.results.push({ participantName, score, total, percentage, submittedAt: new Date().toISOString() })
+    quiz.results.sort((a, b) => b.percentage - a.percentage)
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz submit error:', err.message)
+    res.status(500).json({ error: 'Failed to submit result' })
+  }
 })
 
 // Get leaderboard for a quiz code
-app.get('/api/quiz/results/:code', (req, res) => {
-  const quiz = quizCodeRegistry.get(req.params.code.toUpperCase())
-  if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
-  res.json({ results: quiz.results })
+app.get('/api/quiz/results/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    res.json({ results: quiz.results })
+  } catch (err) {
+    console.error('Quiz results error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch results' })
+  }
 })
 
 // ---- AI ASSISTANT (Chat) ----
