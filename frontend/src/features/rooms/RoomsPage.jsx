@@ -51,6 +51,8 @@ export default function RoomsPage() {
           duration: r.duration ? `${Math.round(r.duration)} min` : 'N/A',
           time: r.endedAt ? new Date(r.endedAt).toLocaleString() : 'Recently',
           host: r.createdBy?.name || 'Host',
+          hasArchive: Boolean(r.hasArchive),
+          archiveExpiresAt: r.archiveExpiresAt || null,
           isUserRoom: false,
         }))
         
@@ -234,6 +236,12 @@ export default function RoomsPage() {
                   <span>Duration: {room.duration}</span>
                 </div>
               )}
+              {activeTab === 'recent' && room.archiveExpiresAt && (
+                <div className="flex items-center gap-2 text-sm text-amber-700">
+                  <i className="ri-archive-line" />
+                  <span>Archive until {new Date(room.archiveExpiresAt).toLocaleString()}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <i className="ri-user-star-line" />
                 <span>Host: {room.host}</span>
@@ -249,10 +257,14 @@ export default function RoomsPage() {
             )}
             {activeTab === 'recent' && (
               <button
-                onClick={() => navigate(`/room/${room.id}`)}
-                className="w-full py-2 bg-gray-100 text-black text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors"
+                onClick={() => navigate(`/rooms/session/${room.id}`)}
+                className={`w-full py-2 text-sm font-medium rounded-lg transition-colors ${
+                  room.hasArchive
+                    ? 'bg-gray-100 text-black hover:bg-gray-200'
+                    : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                }`}
               >
-                View Details
+                {room.hasArchive ? 'View Session' : 'Preparing Archive'}
               </button>
             )}
             {activeTab === 'upcoming' && (

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
 import { getSocket } from '../../../lib/socket'
-import { getToken } from '../../../lib/api'
+import { getToken, getFileUrl } from '../../../lib/api'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -187,7 +187,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
 
   const getPreviewUrl = (resource) => {
     if (!resource?.fileUrl) return null
-    const url = resource.fileUrl
+    const url = getFileUrl(resource.fileUrl)
     const name = (resource.name || '').toLowerCase()
     const type = (resource.type || '').toUpperCase()
 
@@ -199,12 +199,20 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
     if (type === 'VIDEO' || /\.(mp4|webm|ogg)$/i.test(name)) {
       return { type: 'video', url }
     }
-    // PDFs and documents: use Google Docs Viewer
-    if (type === 'PDF' || type === 'DOC' || type === 'PPT' || /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt)$/i.test(name)) {
-      return { type: 'iframe', url: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }
+    // PDFs: use native browser iframe (Google Docs Viewer fails on localhost)
+    if (type === 'PDF' || name.endsWith('.pdf')) {
+      return { type: 'iframe', url }
     }
-    // Fallback: try Google Docs Viewer
-    return { type: 'iframe', url: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }
+    // Other Docs (DOC/PPT): use Google Docs Viewer ONLY if it's an external URL (not localhost)
+    if (type === 'DOC' || type === 'PPT' || /\.(doc|docx|ppt|pptx|xls|xlsx|txt)$/i.test(name)) {
+      if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+        return { type: 'iframe', url: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }
+      }
+      // On localhost, we can't preview DOC/PPT via Google Docs Viewer
+      return null
+    }
+    
+    return null
   }
 
   // Preview mode
@@ -224,7 +232,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
           </button>
           {previewFile.fileUrl && (
             <a
-              href={previewFile.fileUrl}
+              href={getFileUrl(previewFile.fileUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
@@ -272,7 +280,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
                 <i className={`${typeInfo.icon} text-5xl ${typeInfo.color.split(' ')[0]}`} />
                 <p className="text-sm mt-3">Preview not available</p>
                 {previewFile.fileUrl && (
-                  <a href={previewFile.fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                  <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
                     Download file
                   </a>
                 )}
@@ -445,7 +453,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
                         <>
                           <div className="w-px bg-gray-100" />
                           <a
-                            href={file.fileUrl}
+                            href={getFileUrl(file.fileUrl)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex-1 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-1"

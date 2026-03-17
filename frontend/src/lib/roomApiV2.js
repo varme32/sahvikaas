@@ -34,3 +34,14 @@ export async function getUserRoomHistory() {
 export async function getUserRoomStats() {
   return apiRequest('/api/rooms/user/stats', { method: 'GET' })
 }
+
+export async function getRoomSessionArchive(roomId) {
+  return apiRequest(`/api/rooms/${roomId}/session-archive`, { method: 'GET' })
+}
+
+export async function saveRoomSessionArchive(roomId, snapshot) {
+  return apiRequest(`/api/rooms/${roomId}/session-archive`, {
+    method: 'POST',
+    body: snapshot,
+  })
+}
