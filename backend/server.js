@@ -13,6 +13,7 @@ import { connectDB } from './db.js'
 // Model imports
 import Room from './models/Room.js'
 import RoomSessionArchive from './models/RoomSessionArchive.js'
+import QuizSession from './models/QuizSession.js'
 
 // Route imports
 import authRoutes from './routes/auth.js'
@@ -89,6 +90,8 @@ const ROOM_SESSION_RETENTION_DAYS = Math.max(1, Number(process.env.ROOM_SESSION_
 //   folders: [{ id, name, createdBy }],
 //   points: Map<userName, { points, activities: [] }>,
 // }
+
+// Quiz codes are now persisted in MongoDB via QuizSession model
 
 function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
   if (!rooms.has(roomId)) {
@@ -401,6 +404,105 @@ app.get('/api/webrtc/ice', (req, res) => {
   res.json(getIceConfig())
 })
 
+// ─── STANDALONE QUIZ CODE ENDPOINTS (MongoDB-backed) ───
+// Host registers a quiz with a code
+app.post('/api/quiz/register', async (req, res) => {
+  try {
+    const { code, questions, hostName, timeLimit } = req.body
+    if (!code || !questions?.length) {
+      return res.status(400).json({ error: 'code and questions are required' })
+    }
+    const upperCode = code.toUpperCase()
+    // Upsert: replace if code already exists (host re-generated)
+    await QuizSession.findOneAndUpdate(
+      { code: upperCode },
+      { code: upperCode, questions, hostName: hostName || 'Host', timeLimit: timeLimit || 0, results: [], createdAt: new Date() },
+      { upsert: true, new: true }
+    )
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Quiz register error:', err.message)
+    res.status(500).json({ error: 'Failed to register quiz' })
+  }
+})
+
+// Participant fetches quiz by code
+app.get('/api/quiz/join/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found. Check the code and try again.' })
+    res.json({ questions: quiz.questions, hostName: quiz.hostName, timeLimit: quiz.timeLimit || 0 })
+  } catch (err) {
+    console.error('Quiz join error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch quiz' })
+  }
+})
+
+// Participant submits result
+app.post('/api/quiz/submit/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    const { participantName, score, total, percentage } = req.body
+    // Remove previous submission from same participant
+    quiz.results = quiz.results.filter(r => r.participantName !== participantName)
+    quiz.results.push({ participantName, score, total, percentage, submittedAt: new Date().toISOString() })
+    quiz.results.sort((a, b) => b.percentage - a.percentage)
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz submit error:', err.message)
+    res.status(500).json({ error: 'Failed to submit result' })
+  }
+})
+
+// Get leaderboard for a quiz code
+app.get('/api/quiz/results/:code', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    res.json({ results: quiz.results })
+  } catch (err) {
+    console.error('Quiz results error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch results' })
+  }
+})
+
+// Host: edit a participant's score
+app.patch('/api/quiz/results/:code/:participantName', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    const entry = quiz.results.find(r => r.participantName === decodeURIComponent(req.params.participantName))
+    if (!entry) return res.status(404).json({ error: 'Participant not found' })
+    const { score } = req.body
+    entry.score = score
+    entry.percentage = Math.round((score / entry.total) * 100)
+    quiz.results.sort((a, b) => b.percentage - a.percentage)
+    quiz.markModified('results')
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz edit score error:', err.message)
+    res.status(500).json({ error: 'Failed to edit score' })
+  }
+})
+
+// Host: remove a participant's response
+app.delete('/api/quiz/results/:code/:participantName', async (req, res) => {
+  try {
+    const quiz = await QuizSession.findOne({ code: req.params.code.toUpperCase() })
+    if (!quiz) return res.status(404).json({ error: 'Quiz not found' })
+    quiz.results = quiz.results.filter(r => r.participantName !== decodeURIComponent(req.params.participantName))
+    quiz.markModified('results')
+    await quiz.save()
+    res.json({ success: true, results: quiz.results })
+  } catch (err) {
+    console.error('Quiz remove response error:', err.message)
+    res.status(500).json({ error: 'Failed to remove response' })
+  }
+})
+
 // ---- AI ASSISTANT (Chat) ----
 app.post('/api/ai/chat', async (req, res) => {
   try {
@@ -526,6 +628,9 @@ Rules:
 - Questions should test understanding, not just memorization
 - Include a mix of easy, medium, and hard questions
 - Make distractors plausible but clearly wrong
+- If a question involves code, embed it in the "question" field using triple backticks with the language tag: \`\`\`python\\n...code with proper indentation...\\n\`\`\`
+- Preserve ALL code indentation using \\n and spaces inside the JSON string
+- Options must always be plain text, never raw code blocks
 - Return ONLY the JSON array, no other text`
 
     const responseText = await withRetry(() => callAI([{ role: 'user', content: prompt }]))
@@ -1420,14 +1525,19 @@ io.on('connection', (socket) => {
     // Remove any previous submission from same user
     room.quizResults = room.quizResults.filter(r => r.userName !== result.userName)
     room.quizResults.push(result)
-    // Sort by score desc, then time asc
-    room.quizResults.sort((a, b) => b.score - a.score || a.timeTaken - b.timeTaken)
+    // Sort by percentage desc (use score or correct, whichever is present)
+    room.quizResults.sort((a, b) => {
+      const aScore = a.percentage ?? (a.score ?? a.correct ?? 0)
+      const bScore = b.percentage ?? (b.score ?? b.correct ?? 0)
+      return bScore - aScore
+    })
     io.to(meetingId).emit('quiz-results', room.quizResults)
 
-    awardPoints(room, result.userName, result.score, 'Quiz score')
+    const pts = result.score ?? result.correct ?? 0
+    awardPoints(room, result.userName, pts, 'Quiz score')
     io.to(meetingId).emit('points-updated', { leaderboard: getLeaderboard(room) })
 
-    console.log(`📝 [${meetingId}] ${result.userName} submitted quiz: ${result.score}/${result.total}`)
+    console.log(`📝 [${meetingId}] ${result.userName} submitted quiz: ${result.correct}/${result.total}`)
   })
 
   socket.on('quiz-end', ({ meetingId }) => {
