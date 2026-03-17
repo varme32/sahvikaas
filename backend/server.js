@@ -12,6 +12,7 @@ import { connectDB } from './db.js'
 
 // Model imports
 import Room from './models/Room.js'
+import RoomSessionArchive from './models/RoomSessionArchive.js'
 
 // Route imports
 import authRoutes from './routes/auth.js'
@@ -77,6 +78,7 @@ const io = new SocketServer(httpServer, {
 // =============================================
 // Each room is a fully isolated collaboration environment
 const rooms = new Map()
+const ROOM_SESSION_RETENTION_DAYS = Math.max(1, Number(process.env.ROOM_SESSION_RETENTION_DAYS || 7))
 // roomId -> {
 //   id, createdBy, createdAt,
 //   participants: Map<socketId, { id, name, socketId, joinedAt, audioOn, videoOn }>,
@@ -109,6 +111,7 @@ function getOrCreateRoom(roomId, creatorName = 'Host', roomMeta = {}) {
       folders: [],
       points: new Map(),
       activeQuiz: null,
+      lastQuiz: null,
       quizResults: [],
     })
   }
@@ -155,6 +158,103 @@ function getLeaderboard(room) {
     .map(([name, data]) => ({ name, points: data.points, activities: data.activities }))
     .sort((a, b) => b.points - a.points)
   return entries.map((e, i) => ({ ...e, rank: i + 1 }))
+}
+
+function cloneSerializable(value) {
+  if (value == null) return value
+  return JSON.parse(JSON.stringify(value))
+}
+
+async function persistRoomSessionArchive(roomId, room, endedAt = new Date()) {
+  if (!room) return null
+
+  const snapshot = {
+    createdBy: room.createdBy,
+    name: room.name,
+    subject: room.subject,
+    createdAt: room.createdAt,
+    participants: Array.from(room.participants.values()).map(participant => ({ ...participant })),
+    chatMessages: room.chatMessages.map(message => ({ ...message })),
+    tasks: room.tasks.map(task => ({ ...task })),
+    sharedNotes: room.sharedNotes.map(note => ({ ...note })),
+    resources: room.resources.map(resource => ({ ...resource })),
+    folders: room.folders.map(folder => ({ ...folder })),
+    activeQuiz: cloneSerializable(room.activeQuiz || room.lastQuiz),
+    quizResults: room.quizResults.map(result => ({ ...result })),
+    leaderboard: cloneSerializable(getLeaderboard(room)),
+    pointUsers: Array.from(room.points.keys()),
+    participantCount: room.participants.size,
+  }
+
+  const canLoadDbRoom = /^[a-fA-F0-9]{24}$/.test(roomId)
+  const dbRoom = canLoadDbRoom
+    ? await Room.findById(roomId).populate('createdBy', 'name').lean()
+    : null
+
+  const hostName = dbRoom?.createdBy?.name || snapshot.createdBy || 'Host'
+  const participantNames = Array.from(new Set([
+    hostName,
+    ...snapshot.participants.map(participant => participant.name),
+    ...snapshot.pointUsers,
+    ...snapshot.chatMessages
+      .filter(message => message.type === 'chat' && message.user)
+      .map(message => message.user),
+  ].filter(Boolean)))
+
+  const participants = participantNames.map(name => {
+    const liveParticipant = snapshot.participants.find(participant => participant.name === name)
+    const rankedParticipant = snapshot.leaderboard.find(entry => entry.name === name)
+
+    return {
+      name,
+      isHost: Boolean(liveParticipant?.isHost) || name === hostName,
+      joinedAt: liveParticipant?.joinedAt || null,
+      points: rankedParticipant?.points || 0,
+      rank: rankedParticipant?.rank || null,
+    }
+  })
+
+  const startedAt = dbRoom?.createdAt || new Date(snapshot.createdAt || Date.now())
+  const resolvedEndedAt = dbRoom?.endedAt || endedAt
+  const computedDuration = Math.max(0, Math.round((new Date(resolvedEndedAt) - new Date(startedAt)) / 60000))
+  const duration = dbRoom?.duration ?? computedDuration
+  const expiresAt = new Date(new Date(resolvedEndedAt).getTime() + ROOM_SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+
+  return RoomSessionArchive.findOneAndUpdate(
+    { roomId },
+    {
+      roomId,
+      roomName: dbRoom?.name || snapshot.name || `Study Room ${roomId}`,
+      subject: dbRoom?.subject || snapshot.subject || 'General Study',
+      createdByName: hostName,
+      createdById: dbRoom?.createdBy?._id || null,
+      startedAt,
+      endedAt: resolvedEndedAt,
+      duration,
+      maxParticipants: Math.max(dbRoom?.maxParticipants || 0, participantNames.length, snapshot.participantCount),
+      participantNames,
+      participants,
+      chatMessages: snapshot.chatMessages.slice(-500),
+      tasks: snapshot.tasks,
+      sharedNotes: snapshot.sharedNotes,
+      resources: snapshot.resources,
+      folders: snapshot.folders,
+      activeQuiz: snapshot.activeQuiz,
+      quizResults: snapshot.quizResults,
+      leaderboard: snapshot.leaderboard,
+      summary: {
+        chatCount: snapshot.chatMessages.length,
+        taskCount: snapshot.tasks.length,
+        noteCount: snapshot.sharedNotes.length,
+        resourceCount: snapshot.resources.length,
+        folderCount: snapshot.folders.length,
+        quizSubmissionCount: snapshot.quizResults.length,
+        retentionDays: ROOM_SESSION_RETENTION_DAYS,
+      },
+      expiresAt,
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
 }
 
 function getIceConfig() {
@@ -626,8 +726,36 @@ io.on('connection', (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`)
 
   // ─── JOIN ROOM ───────────────────────────────
-  socket.on('join-meeting', ({ meetingId, userName, isMobile }) => {
-    const room = getOrCreateRoom(meetingId, userName)
+  socket.on('join-meeting', async ({ meetingId, userName, isMobile }) => {
+    let persistedRoom = null
+
+    try {
+      if (/^[a-fA-F0-9]{24}$/.test(meetingId)) {
+        persistedRoom = await Room.findById(meetingId).populate('createdBy', 'name').lean()
+      }
+    } catch (err) {
+      console.error('Failed to load room before join:', err.message)
+    }
+
+    const existingRoom = rooms.get(meetingId)
+    if (persistedRoom?.ended && (!existingRoom || existingRoom.ended || existingRoom.participants.size === 0)) {
+      socket.emit('room-ended', { message: 'This room has ended. Open the session archive from Recent sessions.' })
+      return
+    }
+
+    const room = getOrCreateRoom(
+      meetingId,
+      persistedRoom?.createdBy?.name || existingRoom?.createdBy || userName,
+      persistedRoom
+        ? {
+            name: persistedRoom.name,
+            subject: persistedRoom.subject,
+            privacy: persistedRoom.privacy,
+            audio: persistedRoom.audio,
+            video: persistedRoom.video,
+          }
+        : {}
+    )
     if (room.ended) {
       socket.emit('room-ended', { message: 'This room has been ended by the host.' })
       return
@@ -774,18 +902,14 @@ io.on('connection', (socket) => {
   socket.on('end-room', async ({ meetingId }) => {
     const room = rooms.get(meetingId)
     if (!room) return
-    // Only host can end
-    if (socket.userName !== room.createdBy) return
+    // Only the current host socket can end the room.
+    const requester = room.participants.get(socket.id)
+    if (!requester?.isHost) return
     room.ended = true
     io.to(meetingId).emit('room-ended', { message: 'The host has ended this room.' })
-    // Optionally, disconnect all users from the room
-    for (const [sid] of room.participants) {
-      const s = io.sockets.sockets.get(sid)
-      if (s) s.leave(meetingId)
-    }
-    room.participants.clear()
 
     // Update MongoDB to mark the room as ended
+    let endedAt = new Date()
     try {
       const dbRoom = await Room.findById(meetingId)
       if (dbRoom && !dbRoom.ended) {
@@ -794,11 +918,35 @@ io.on('connection', (socket) => {
         dbRoom.status = 'completed'
         dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
         await dbRoom.save()
+        endedAt = dbRoom.endedAt
         console.log(`✅ Room ${meetingId} marked as ended in MongoDB via socket`)
+      } else if (dbRoom?.endedAt) {
+        endedAt = dbRoom.endedAt
       }
     } catch (err) {
       console.error('Failed to update room in MongoDB:', err.message)
     }
+
+    try {
+      await persistRoomSessionArchive(meetingId, room, endedAt)
+      console.log(`🗂️ Archived room ${meetingId} for ${ROOM_SESSION_RETENTION_DAYS} days`)
+    } catch (err) {
+      console.error('Failed to archive ended room:', err.message)
+    }
+
+    // Optionally, disconnect all users from the room
+    for (const [sid] of room.participants) {
+      const s = io.sockets.sockets.get(sid)
+      if (s) s.leave(meetingId)
+    }
+    room.participants.clear()
+
+    setTimeout(() => {
+      if (rooms.has(meetingId) && rooms.get(meetingId).ended) {
+        rooms.delete(meetingId)
+        console.log(`🗑️ Cleaned up ended room ${meetingId}`)
+      }
+    }, 60 * 1000)
   })
 
   // ─── APPROVE PARTICIPANT ────────────────────
@@ -1259,6 +1407,7 @@ io.on('connection', (socket) => {
     if (!room) return
 
     room.activeQuiz = quiz
+    room.lastQuiz = quiz
     room.quizResults = []
     io.to(meetingId).emit('quiz-started', quiz)
     console.log(`📝 [${meetingId}] ${socket.userName} started a quiz for all participants`)
@@ -1285,6 +1434,10 @@ io.on('connection', (socket) => {
     const room = rooms.get(meetingId)
     if (!room) return
 
+    // Preserve quiz data for archive before clearing
+    if (room.activeQuiz) {
+      room.lastQuiz = room.activeQuiz
+    }
     room.activeQuiz = null
     io.to(meetingId).emit('quiz-ended')
     console.log(`📝 [${meetingId}] ${socket.userName} ended the quiz`)
@@ -1358,6 +1511,8 @@ io.on('connection', (socket) => {
           const currentRoom = rooms.get(meetingId)
           // Only end if still empty after the grace period
           if (currentRoom.participants.size === 0 && !currentRoom.ended) {
+            currentRoom.ended = true
+            let endedAt = new Date()
             try {
               const dbRoom = await Room.findById(meetingId)
               if (dbRoom && !dbRoom.ended) {
@@ -1366,10 +1521,20 @@ io.on('connection', (socket) => {
                 dbRoom.status = 'completed'
                 dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
                 await dbRoom.save()
+                endedAt = dbRoom.endedAt
                 console.log(`✅ Room ${meetingId} marked as ended in MongoDB (empty for 2 min)`)
+              } else if (dbRoom?.endedAt) {
+                endedAt = dbRoom.endedAt
               }
             } catch (err) {
               console.error('Failed to update room in MongoDB on empty:', err.message)
+            }
+
+            try {
+              await persistRoomSessionArchive(meetingId, currentRoom, endedAt)
+              console.log(`🗂️ Archived inactive room ${meetingId} for ${ROOM_SESSION_RETENTION_DAYS} days`)
+            } catch (err) {
+              console.error('Failed to archive inactive room:', err.message)
             }
           }
         }, 2 * 60 * 1000) // 2 minute grace period
@@ -1388,6 +1553,18 @@ io.on('connection', (socket) => {
 })
 
 // Start server
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use.`)
+    console.error('   Another backend server is already running.')
+    console.error('   Stop the existing process or use a different PORT value.\n')
+    process.exit(1)
+  }
+
+  console.error('\n❌ HTTP server failed to start:', err.message)
+  process.exit(1)
+})
+
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 StudyHub Backend running on http://localhost:${PORT}`)
   console.log(`📹 WebRTC Signaling Server active`)

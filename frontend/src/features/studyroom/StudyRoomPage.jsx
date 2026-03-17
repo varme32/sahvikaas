@@ -17,7 +17,7 @@ import WaitingScreen from './components/WaitingScreen'
 import { getSocket, connectSocket, disconnectSocket } from '../../lib/socket'
 import { useAuth } from '../../lib/auth'
 import { getRoomInfo } from '../../lib/roomApi'
-import { joinRoom, endRoom } from '../../lib/roomApiV2'
+import { joinRoom, endRoom, saveRoomSessionArchive } from '../../lib/roomApiV2'
 
 const featureTabs = [
   { id: 'chat', label: 'Chat', icon: 'ri-message-3-line' },
@@ -91,7 +91,9 @@ export default function StudyRoomPage() {
             name: data.name, 
             subject: data.subject,
             owner: data.createdBy?._id || data.createdBy,
-            ended: data.ended
+            ended: data.ended,
+            createdAt: data.createdAt,
+            maxParticipants: data.maxParticipants,
           })
           // Don't auto-redirect on data.ended — the room may still be alive
           // in-memory on the server. The socket 'room-ended' event will redirect
@@ -142,6 +144,7 @@ export default function StudyRoomPage() {
   // Quiz state shared across room
   const [activeQuiz, setActiveQuiz] = useState(null) // { questions, timeMinutes, createdBy }
   const [quizResults, setQuizResults] = useState([]) // [{ userName, score, total, answers }]
+  const lastQuizRef = useRef(null) // preserve quiz data for archive even after quiz-end
 
   // Connect socket when entering the study room, disconnect when leaving
   useEffect(() => {
@@ -184,7 +187,7 @@ export default function StudyRoomPage() {
         disconnectSocket()
       }
     }
-  }, [meetingIdFromUrl, userName])
+  }, [meetingIdFromUrl, userName, isMobileDevice])
 
   // Subscribe to socket events for participant count, points, and all shared state
   useEffect(() => {
@@ -226,6 +229,7 @@ export default function StudyRoomPage() {
     }
     const handleQuizStarted = (quiz) => {
       setActiveQuiz(quiz)
+      lastQuizRef.current = quiz
       setQuizResults([])
     }
     const handleQuizResults = (results) => {
@@ -233,6 +237,7 @@ export default function StudyRoomPage() {
     }
     const handleQuizEnded = () => {
       setActiveQuiz(null)
+      // lastQuizRef intentionally NOT cleared — needed for archive
     }
 
     socket.on('participants-updated', handleParticipants)
@@ -355,9 +360,12 @@ export default function StudyRoomPage() {
 
     const handleRoomEnded = (data) => {
       setHasEnded(true)
-      alert(data.message || 'This room has ended.')
+      if (!endingRoom) {
+        alert(data.message || 'This room has ended.')
+      }
       setTimeout(() => {
-        navigate('/rooms')
+        disconnectSocket()
+        navigate(`/rooms/session/${meetingIdFromUrl}`)
       }, 1000)
     }
 
@@ -443,7 +451,7 @@ export default function StudyRoomPage() {
       socket.off('host-disabled-video', handleHostDisabledVideo)
       socket.off('host-removed-you', handleHostRemovedYou)
     }
-  }, [navigate, isHost])
+  }, [navigate, isHost, meetingIdFromUrl, userName, isMobileDevice, endingRoom])
 
   // End room (host only)
   const handleEndMeeting = async () => {
@@ -455,6 +463,43 @@ export default function StudyRoomPage() {
     setEndingRoom(true)
     try {
       const socket = getSocket()
+      const endedAtIso = new Date().toISOString()
+
+      const snapshotPayload = {
+        roomName: roomInfo?.name,
+        subject: roomInfo?.subject,
+        createdByName: userName,
+        startedAt: roomInfo?.createdAt,
+        endedAt: endedAtIso,
+        maxParticipants: Math.max(
+          participants.length,
+          lastParticipantCount,
+          roomInfo?.maxParticipants || 0
+        ),
+        participantNames: Array.from(new Set([
+          userName,
+          ...participants.map(p => p.name).filter(Boolean),
+        ])),
+        participants: participants.map(p => ({
+          name: p.name,
+          joinedAt: p.joinedAt,
+          isHost: Boolean(p.isHost),
+        })),
+        chatMessages,
+        tasks,
+        sharedNotes,
+        resources: sharedResources,
+        folders: sharedFolders,
+        activeQuiz: activeQuiz || lastQuizRef.current,
+        quizResults,
+      }
+
+      // Persist a rich snapshot right away so session view is available immediately.
+      try {
+        await saveRoomSessionArchive(meetingIdFromUrl, snapshotPayload)
+      } catch (err) {
+        console.warn('Failed to save room archive snapshot from client:', err?.message || err)
+      }
       
       // Try to end via MongoDB API first (if it's a persistent room)
       try {
@@ -466,15 +511,22 @@ export default function StudyRoomPage() {
       // Emit socket event to end the in-memory room
       if (socket && socket.connected) {
         socket.emit('end-room', { meetingId: meetingIdFromUrl })
+      } else {
+        setTimeout(() => {
+          disconnectSocket()
+          navigate(`/rooms/session/${meetingIdFromUrl}`)
+        }, 1500)
       }
+
+      // Safety fallback: if room-ended event is delayed, still move to session view.
+      setTimeout(() => {
+        if (window.location.hash?.includes(`/room/${meetingIdFromUrl}`)) {
+          disconnectSocket()
+          navigate(`/rooms/session/${meetingIdFromUrl}`)
+        }
+      }, 4000)
       
       setHasEnded(true)
-      
-      // Navigate back to rooms page after a short delay
-      setTimeout(() => {
-        disconnectSocket()
-        navigate('/rooms')
-      }, 1500)
     } catch (err) {
       alert('Failed to end room: ' + (err.message || err))
       setEndingRoom(false)

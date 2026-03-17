@@ -16,6 +16,13 @@ export function removeToken() {
   localStorage.removeItem(TOKEN_KEY)
 }
 
+export function getFileUrl(path) {
+  if (!path) return null
+  if (path.startsWith('http') || path.startsWith('blob:')) return path
+  // If it starts with /uploads, and we have an API_BASE, ensure we use it
+  return `${API_BASE}${path}`
+}
+
 // ─── Core request helper ───
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`

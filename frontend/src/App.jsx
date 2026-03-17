@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AuthPage from './features/auth/AuthPage'
 import DashboardPage from './features/dashboard/DashboardPage'
 import RoomsPage from './features/rooms/RoomsPage'
+import SessionArchivePage from './features/rooms/SessionArchivePage'
 import CreateRoomPage from './features/rooms/CreateRoomPage'
 import StudyRoomPage from './features/studyroom/StudyRoomPage'
 import ProfilePage from './features/profile/ProfilePage'
@@ -52,6 +53,7 @@ function App() {
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/rooms" element={<RoomsPage />} />
+              <Route path="/rooms/session/:id" element={<SessionArchivePage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/resources" element={<ResourcesPage />} />
               <Route path="/ai-tools" element={<AIToolsPage />} />
