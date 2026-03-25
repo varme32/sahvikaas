@@ -10,6 +10,7 @@ import AchievementsPage from './features/achievements/AchievementsPage'
 import AIToolsPage from './features/aitools/AIToolsPage'
 import ResourcesPage from './features/resources/ResourcesPage'
 import SchedulePage from './features/schedule/SchedulePage'
+import AdminPage from './features/admin/AdminPage'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { ToastProvider } from './components/ui/Toast'
 import { AuthProvider, useAuth } from './lib/auth'
@@ -37,9 +38,18 @@ function ProtectedRoute({ children }) {
 }
 
 function PublicRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
+  const { isAuthenticated, loading, user } = useAuth()
   if (loading) return null
-  return isAuthenticated ? <Navigate to="/" replace /> : children
+  if (isAuthenticated) {
+    return <Navigate to={user?.role === 'admin' ? '/admin' : '/'} replace />
+  }
+  return children
+}
+
+function AdminRedirect() {
+  const { user } = useAuth()
+  if (user?.role === 'admin') return <Navigate to="/admin" replace />
+  return <DashboardPage />
 }
 
 function App() {
@@ -51,7 +61,7 @@ function App() {
             <Route path="/login" element={<PublicRoute><AuthPage mode="login" /></PublicRoute>} />
             <Route path="/signup" element={<PublicRoute><AuthPage mode="signup" /></PublicRoute>} />
             <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
-              <Route path="/" element={<DashboardPage />} />
+              <Route path="/" element={<AdminRedirect />} />
               <Route path="/rooms" element={<RoomsPage />} />
               <Route path="/rooms/session/:id" element={<SessionArchivePage />} />
               <Route path="/profile" element={<ProfilePage />} />
@@ -59,6 +69,7 @@ function App() {
               <Route path="/ai-tools" element={<AIToolsPage />} />
               <Route path="/schedule" element={<SchedulePage />} />
               <Route path="/achievements" element={<AchievementsPage />} />
+              <Route path="/admin" element={<AdminPage />} />
             </Route>
             <Route path="/create-room" element={<ProtectedRoute><CreateRoomPage /></ProtectedRoute>} />
             <Route path="/room/:id" element={<ProtectedRoute><StudyRoomPage /></ProtectedRoute>} />

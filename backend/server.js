@@ -24,6 +24,7 @@ import achievementRoutes from './routes/achievements.js'
 import dashboardRoutes from './routes/dashboard.js'
 import roomsRoutes from './routes/rooms.js'
 import notificationRoutes from './routes/notifications.js'
+import adminRoutes from './routes/admin.js'
 
 dotenv.config()
 
@@ -319,6 +320,7 @@ app.use('/api/achievements', achievementRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/rooms', roomsRoutes)
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/admin', adminRoutes)
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads')
