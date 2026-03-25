@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema({
   bio: { type: String, default: '' },
   institution: { type: String, default: '' },
   major: { type: String, default: '' },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
   joinedAt: { type: Date, default: Date.now },
   // Room history
   createdRooms: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Room' }],

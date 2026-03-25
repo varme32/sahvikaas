@@ -115,11 +115,9 @@ export default function DashboardLayout() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          {navItems.map(item => (
+          {user?.role === 'admin' ? (
             <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
+              to="/admin"
               onClick={() => isMobile && setSidebarOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -129,10 +127,29 @@ export default function DashboardLayout() {
                 }`
               }
             >
-              <i className={`${item.icon} text-lg`} />
-              {item.label}
+              <i className="ri-shield-star-line text-lg" />
+              Admin Panel
             </NavLink>
-          ))}
+          ) : (
+            navItems.map(item => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                onClick={() => isMobile && setSidebarOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-white text-black shadow-sm'
+                      : 'text-black/80 hover:bg-[#e0bd6c] hover:text-black'
+                  }`
+                }
+              >
+                <i className={`${item.icon} text-lg`} />
+                {item.label}
+              </NavLink>
+            ))
+          )}
         </nav>
 
         <div className="p-3 border-t border-[#e0bd6c]">

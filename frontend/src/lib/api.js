@@ -302,3 +302,67 @@ export async function getAchievementStats() {
   return apiRequest('/api/achievements/stats')
 }
 
+// ═══════════════════════════════════════════════
+// ADMIN API
+// ═══════════════════════════════════════════════
+export async function getAdminDashboard() {
+  return apiRequest('/api/admin/dashboard')
+}
+
+export async function getAdminUsers(params = {}) {
+  const query = new URLSearchParams()
+  if (params.page) query.set('page', params.page)
+  if (params.limit) query.set('limit', params.limit)
+  if (params.search) query.set('search', params.search)
+  if (params.role) query.set('role', params.role)
+  if (params.sort) query.set('sort', params.sort)
+  const qs = query.toString()
+  return apiRequest(`/api/admin/users${qs ? `?${qs}` : ''}`)
+}
+
+export async function updateAdminUser(id, data) {
+  return apiRequest(`/api/admin/users/${id}`, { method: 'PUT', body: data })
+}
+
+export async function deleteAdminUser(id) {
+  return apiRequest(`/api/admin/users/${id}`, { method: 'DELETE' })
+}
+
+export async function getAdminResources(params = {}) {
+  const query = new URLSearchParams()
+  if (params.page) query.set('page', params.page)
+  if (params.limit) query.set('limit', params.limit)
+  if (params.search) query.set('search', params.search)
+  const qs = query.toString()
+  return apiRequest(`/api/admin/resources${qs ? `?${qs}` : ''}`)
+}
+
+export async function deleteAdminResource(id) {
+  return apiRequest(`/api/admin/resources/${id}`, { method: 'DELETE' })
+}
+
+export async function toggleAdminResourceFeatured(id) {
+  return apiRequest(`/api/admin/resources/${id}/featured`, { method: 'PUT' })
+}
+
+export async function getAdminRooms(params = {}) {
+  const query = new URLSearchParams()
+  if (params.page) query.set('page', params.page)
+  if (params.limit) query.set('limit', params.limit)
+  if (params.status) query.set('status', params.status)
+  const qs = query.toString()
+  return apiRequest(`/api/admin/rooms${qs ? `?${qs}` : ''}`)
+}
+
+export async function deleteAdminRoom(id) {
+  return apiRequest(`/api/admin/rooms/${id}`, { method: 'DELETE' })
+}
+
+export async function endAdminRoom(id) {
+  return apiRequest(`/api/admin/rooms/${id}/end`, { method: 'PUT' })
+}
+
+export async function promoteToAdmin(email) {
+  return apiRequest('/api/admin/promote', { method: 'POST', body: { email } })
+}
+
