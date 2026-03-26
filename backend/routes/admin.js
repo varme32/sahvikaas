@@ -297,7 +297,8 @@ router.get('/rooms', async (req, res) => {
 
     const total = await Room.countDocuments(filter)
     const rooms = await Room.find(filter)
-      .populate('createdBy', 'name email')
+      .populate('createdBy', 'name email avatar')
+      .populate('participants', 'name email avatar')
       .sort('-createdAt')
       .skip((page - 1) * limit)
       .limit(limit)

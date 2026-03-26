@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../../lib/auth'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -498,6 +498,7 @@ function RoomsTab() {
   const [pages, setPages] = useState(1)
   const [statusFilter, setStatusFilter] = useState('')
   const [loading, setLoading] = useState(true)
+  const [expandedRoom, setExpandedRoom] = useState(null)
 
   const fetchRooms = useCallback(async () => {
     setLoading(true)
@@ -534,11 +535,20 @@ function RoomsTab() {
     }
   }
 
+  const toggleExpand = (id) => {
+    setExpandedRoom(prev => prev === id ? null : id)
+  }
+
   const statusColors = {
     active: 'bg-green-100 text-green-700',
     completed: 'bg-gray-100 text-gray-600',
     scheduled: 'bg-blue-100 text-blue-700',
     cancelled: 'bg-red-100 text-red-600',
+  }
+
+  const formatDuration = (minutes) => {
+    if (!minutes || minutes <= 0) return 'N/A'
+    return `${Math.round(minutes)} min`
   }
 
   return (
@@ -569,51 +579,111 @@ function RoomsTab() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden md:table-cell">Creator</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Status</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Participants</th>
+                <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Duration</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Created</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400"><i className="ri-loader-4-line animate-spin text-xl" /> Loading...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400"><i className="ri-loader-4-line animate-spin text-xl" /> Loading...</td></tr>
               ) : rooms.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No rooms found</td></tr>
-              ) : rooms.map(r => (
-                <tr key={r._id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3">
-                    <span className="font-medium text-gray-800 truncate max-w-[200px] block">{r.name}</span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 hidden sm:table-cell truncate max-w-[120px]">{r.subject || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{r.createdBy?.name || '—'}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[r.status] || 'bg-gray-100 text-gray-600'}`}>
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center hidden lg:table-cell text-gray-600">{r.maxParticipants || 0}</td>
-                  <td className="px-4 py-3 text-center hidden lg:table-cell text-gray-500 text-xs">{new Date(r.createdAt).toLocaleDateString()}</td>
-                  <td className="px-4 py-3 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      {r.status === 'active' && (
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No rooms found</td></tr>
+              ) : rooms.map(r => {
+                const participants = r.participants || []
+                const isExpanded = expandedRoom === r._id
+                return (
+                  <React.Fragment key={r._id}>
+                    <tr className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-gray-800 truncate max-w-[200px] block">{r.name}</span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 hidden sm:table-cell truncate max-w-[120px]">{r.subject || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{r.createdBy?.name || '—'}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[r.status] || 'bg-gray-100 text-gray-600'}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => handleEnd(r._id)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
-                          title="Force end room"
+                          onClick={() => toggleExpand(r._id)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                            isExpanded
+                              ? 'bg-[#F2CF7E]/20 text-[#b5942e] ring-1 ring-[#F2CF7E]/40'
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                          title={participants.length > 0 ? 'Click to see participants' : 'No participants'}
                         >
-                          <i className="ri-stop-circle-line text-sm" />
+                          <i className="ri-user-line text-xs" />
+                          {participants.length}
+                          {participants.length > 0 && (
+                            <i className={`ri-arrow-${isExpanded ? 'up' : 'down'}-s-line text-xs`} />
+                          )}
                         </button>
-                      )}
-                      <button
-                        onClick={() => handleDelete(r._id, r.name)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Delete room"
-                      >
-                        <i className="ri-delete-bin-6-line text-sm" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </td>
+                      <td className="px-4 py-3 text-center hidden lg:table-cell text-gray-500 text-xs">{formatDuration(r.duration)}</td>
+                      <td className="px-4 py-3 text-center hidden lg:table-cell text-gray-500 text-xs">{new Date(r.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {r.status === 'active' && (
+                            <button
+                              onClick={() => handleEnd(r._id)}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                              title="Force end room"
+                            >
+                              <i className="ri-stop-circle-line text-sm" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDelete(r._id, r.name)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete room"
+                          >
+                            <i className="ri-delete-bin-6-line text-sm" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-gray-50/60">
+                        <td colSpan={8} className="px-4 py-3">
+                          <div className="pl-2">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                              <i className="ri-team-line" />
+                              Participants ({participants.length})
+                            </p>
+                            {participants.length === 0 ? (
+                              <p className="text-xs text-gray-400 italic">No participants have joined this room yet.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {participants.map(p => (
+                                  <div
+                                    key={p._id}
+                                    className="flex items-center gap-2.5 bg-white rounded-lg px-3 py-2 border border-gray-100 shadow-sm hover:shadow transition-shadow"
+                                  >
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center overflow-hidden shrink-0">
+                                      {p.avatar ? (
+                                        <img src={p.avatar} alt="" className="w-full h-full object-cover" />
+                                      ) : (
+                                        <span className="text-white text-xs font-bold">{p.name?.[0]?.toUpperCase()}</span>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                                      <p className="text-[11px] text-gray-400 truncate">{p.email}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
