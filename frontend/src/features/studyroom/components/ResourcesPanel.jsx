@@ -84,36 +84,30 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
 
     try {
       let fileUrl = ''
-      let size = (uploadForm.file.size / 1024).toFixed(0) + ' KB'
+      let size = ''
 
-      // Try uploading file to Cloudinary via backend
-      try {
-        const token = getToken()
-        const formData = new FormData()
-        formData.append('file', uploadForm.file)
+      // Upload file to Cloudinary via backend
+      const token = getToken()
+      const formData = new FormData()
+      formData.append('file', uploadForm.file)
 
-        const uploadRes = await fetch(`${API_BASE}/api/resources/upload`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        })
+      const uploadRes = await fetch(`${API_BASE}/api/resources/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
 
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json()
-          if (uploadData.ok) {
-            fileUrl = uploadData.fileUrl
-            size = uploadData.size
-          }
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json()
+        if (uploadData.ok) {
+          fileUrl = uploadData.fileUrl
+          size = uploadData.size
         }
-      } catch (uploadErr) {
-        console.warn('Cloudinary upload failed, using local blob URL for this session:', uploadErr.message)
       }
 
-      // Fallback: create a local blob URL so the file can still be previewed in this session
       if (!fileUrl) {
-        fileUrl = URL.createObjectURL(uploadForm.file)
+        // Fallback: just track metadata without actual file storage
         size = (uploadForm.file.size / 1024).toFixed(0) + ' KB'
-        console.log('Using local blob URL for preview (not persisted after page refresh):', fileUrl)
       }
 
       const type = uploadForm.type || getTypeFromExt(uploadForm.file.name)
@@ -126,7 +120,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
           resource: {
             name: uploadForm.title || uploadForm.file.name,
             type,
-            size,
+            size: size || (uploadForm.file.size / 1024).toFixed(0) + ' KB',
             folderId: currentFolder,
             fileUrl,
             icon: typeInfo.icon,
@@ -137,7 +131,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
       }
     } catch (err) {
       console.error('Upload error:', err)
-      alert('Failed to add resource: ' + err.message)
+      alert('Failed to upload: ' + err.message)
     }
 
     setUploadForm({ title: '', type: 'PDF', tags: '', file: null })
@@ -184,7 +178,11 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
   }
 
   const handleOpenResource = (resource) => {
-    setPreviewFile(resource)
+    if (resource.fileUrl) {
+      setPreviewFile(resource)
+    } else {
+      alert('No file URL available for preview')
+    }
   }
 
   const getPreviewUrl = (resource) => {
@@ -193,39 +191,44 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
     const name = (resource.name || '').toLowerCase()
     const type = (resource.type || '').toUpperCase()
 
+    // Images: render directly
     if (type === 'IMAGE' || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(name)) {
       return { type: 'image', url }
     }
+    // Videos: render in video element
     if (type === 'VIDEO' || /\.(mp4|webm|ogg)$/i.test(name)) {
       return { type: 'video', url }
     }
+    // PDFs: use native browser iframe (Google Docs Viewer fails on localhost)
     if (type === 'PDF' || name.endsWith('.pdf')) {
       return { type: 'iframe', url }
     }
+    // Other Docs (DOC/PPT): use Google Docs Viewer ONLY if it's an external URL (not localhost)
     if (type === 'DOC' || type === 'PPT' || /\.(doc|docx|ppt|pptx|xls|xlsx|txt)$/i.test(name)) {
       if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
         return { type: 'iframe', url: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }
       }
+      // On localhost, we can't preview DOC/PPT via Google Docs Viewer
       return null
     }
+    
     return null
   }
 
-  // ─── Inline Preview Mode (replaces file list within the right panel) ───
+  // Preview mode
   if (previewFile) {
     const preview = getPreviewUrl(previewFile)
     const typeInfo = getTypeInfo(previewFile.type)
 
     return (
       <div className="flex flex-col h-full">
-        {/* Preview header */}
-        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0 bg-gray-50">
+        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0">
           <button
             onClick={() => setPreviewFile(null)}
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-black"
+            className="flex items-center gap-1 text-sm text-black hover:text-[#e0bd6c]"
           >
-            <i className="ri-arrow-left-s-line text-base" />
-            Back to Resources
+            <i className="ri-arrow-left-s-line" />
+            Back to Files
           </button>
           {previewFile.fileUrl && (
             <a
@@ -234,22 +237,19 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
             >
-              <i className="ri-external-link-line" /> Open in new tab
+              <i className="ri-external-link-line" />
+              Open in new tab
             </a>
           )}
         </div>
-
-        {/* File info bar */}
-        <div className="px-3 py-2 border-b border-gray-100 bg-white shrink-0">
+        <div className="px-3 py-2 border-b border-gray-50 bg-gray-50 shrink-0">
           <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${typeInfo.color}`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${typeInfo.color}`}>
               <i className={`${typeInfo.icon} text-base`} />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">{previewFile.name}</p>
-              <p className="text-xs text-gray-400">
-                {previewFile.size && `${previewFile.size} · `}{previewFile.type}{previewFile.uploadedBy && ` · by ${previewFile.uploadedBy}`}
-              </p>
+            <div>
+              <p className="text-sm font-medium text-gray-900">{previewFile.name}</p>
+              <p className="text-xs text-gray-400">{previewFile.size} · {previewFile.type} · by {previewFile.uploadedBy}</p>
             </div>
           </div>
           {previewFile.tags && previewFile.tags.length > 0 && (
@@ -260,8 +260,6 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
             </div>
           )}
         </div>
-
-        {/* Preview content */}
         <div className="flex-1 overflow-hidden">
           {preview?.type === 'image' && (
             <div className="h-full flex items-center justify-center p-4 bg-gray-50">
@@ -269,7 +267,7 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
             </div>
           )}
           {preview?.type === 'video' && (
-            <div className="h-full flex items-center justify-center p-2 bg-black">
+            <div className="h-full flex items-center justify-center p-4 bg-black">
               <video src={preview.url} controls className="max-w-full max-h-full rounded-lg" />
             </div>
           )}
@@ -278,18 +276,12 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
           )}
           {!preview && (
             <div className="h-full flex items-center justify-center text-gray-400">
-              <div className="text-center px-4">
+              <div className="text-center">
                 <i className={`${typeInfo.icon} text-5xl ${typeInfo.color.split(' ')[0]}`} />
-                <p className="text-sm mt-3 font-medium text-gray-600">Preview not available</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  {!previewFile.fileUrl
-                    ? 'This file was uploaded without a direct URL (upload may have failed)'
-                    : 'This file type cannot be previewed in the browser'}
-                </p>
+                <p className="text-sm mt-3">Preview not available</p>
                 {previewFile.fileUrl && (
-                  <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-3">
-                    <i className="ri-download-line" /> Download file
+                  <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                    Download file
                   </a>
                 )}
               </div>
@@ -299,8 +291,6 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
       </div>
     )
   }
-
-
 
   return (
     <div
@@ -422,13 +412,10 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
             <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-2' : 'space-y-1.5'}>
               {currentFiles.map(file => {
                 const typeInfo = getTypeInfo(file.type)
-                const isActive = previewFile?.id === file.id
                 return (
                   <div
                     key={file.id}
-                    className={`group border rounded-lg hover:shadow-md transition-all overflow-hidden ${
-                      isActive ? 'border-[#F2CF7E] ring-1 ring-[#F2CF7E]/50 shadow-sm' : 'border-gray-200'
-                    }`}
+                    className="group border border-gray-200 rounded-lg hover:shadow-md transition-all overflow-hidden"
                   >
                     <button
                       onClick={() => handleOpenResource(file)}
@@ -446,11 +433,6 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
                             <span>• {file.uploadedBy}</span>
                           </div>
                         </div>
-                        {isActive && (
-                          <span className="shrink-0 text-[10px] font-medium text-black bg-[#F2CF7E]/30 px-1.5 py-0.5 rounded">
-                            Previewing
-                          </span>
-                        )}
                       </div>
                       {file.tags && file.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2">
@@ -463,11 +445,9 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
                     <div className="flex border-t border-gray-100">
                       <button
                         onClick={() => handleOpenResource(file)}
-                        className={`flex-1 py-1.5 text-xs font-medium flex items-center justify-center gap-1 ${
-                          isActive ? 'text-black bg-[#F2CF7E]/20' : 'text-gray-600 hover:bg-gray-50'
-                        }`}
+                        className="flex-1 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-1"
                       >
-                        <i className={isActive ? 'ri-eye-fill' : 'ri-eye-line'} /> Preview
+                        <i className="ri-eye-line" /> Preview
                       </button>
                       {file.fileUrl && (
                         <>

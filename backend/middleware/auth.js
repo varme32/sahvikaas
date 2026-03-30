@@ -25,6 +25,10 @@ export async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'User not found' })
     }
 
+    if (user.banned) {
+      return res.status(403).json({ error: 'This account has been suspended.', banned: true })
+    }
+
     req.user = user
     next()
   } catch (err) {

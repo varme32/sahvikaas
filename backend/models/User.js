@@ -20,6 +20,16 @@ const userSchema = new mongoose.Schema({
   longestStreak: { type: Number, default: 0 },
   totalXP: { type: Number, default: 0 },
   lastStudyDate: { type: Date, default: null },
+  lastActiveAt: { type: Date, default: null },
+  banned: { type: Boolean, default: false },
+  bannedAt: { type: Date, default: null },
+  bannedReason: { type: String, default: '' },
+  moderationWarnings: { type: Number, default: 0 },
+  aiQuota: {
+    dailyTokenLimit: { type: Number, default: null },
+    monthlyRequestLimit: { type: Number, default: null },
+    disabledFeatures: [{ type: String }],
+  },
 }, { timestamps: true })
 
 // Hash password before saving

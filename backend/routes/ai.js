@@ -1,9 +1,34 @@
 import express from 'express'
 import multer from 'multer'
 import pdfParse from 'pdf-parse'
+import { optionalAuthMiddleware } from '../middleware/optionalAuth.js'
+import { assertAiAccess, logAiUsage, estimateTokensFromText } from '../lib/aiTracking.js'
 
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage() })
+
+router.use(optionalAuthMiddleware)
+
+router.use(async (req, res, next) => {
+  if (req.method !== 'POST') return next()
+  const feature = (req.path || '').replace(/^\//, '').split('/')[0] || 'ai'
+  const gate = await assertAiAccess(req, feature)
+  if (gate) return res.status(gate.status).json({ error: gate.message })
+  next()
+})
+
+router.use((req, res, next) => {
+  if (req.method !== 'POST') return next()
+  const origJson = res.json.bind(res)
+  res.json = body => {
+    const feature = (req.path || '').replace(/^\//, '').split('/')[0] || 'ai'
+    if (req.user?._id && body && !body.error && body.success !== false) {
+      logAiUsage(req.user._id, feature, estimateTokensFromText(JSON.stringify(body))).catch(() => {})
+    }
+    return origJson(body)
+  }
+  next()
+})
 
 // OpenRouter API configuration
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'

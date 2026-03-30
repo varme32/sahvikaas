@@ -10,7 +10,18 @@ import AchievementsPage from './features/achievements/AchievementsPage'
 import AIToolsPage from './features/aitools/AIToolsPage'
 import ResourcesPage from './features/resources/ResourcesPage'
 import SchedulePage from './features/schedule/SchedulePage'
-import AdminPage from './features/admin/AdminPage'
+import AdminLayout from './features/admin/AdminLayout'
+import {
+  AdminDashboardView,
+  AdminUsersView,
+  AdminUserDetailView,
+  AdminRoomsView,
+  AdminAIUsageView,
+  AdminReportsView,
+  AdminNotificationsView,
+  AdminGamificationView,
+  AdminSettingsView,
+} from './features/admin/AdminViews'
 import DashboardLayout from './components/layout/DashboardLayout'
 import { ToastProvider } from './components/ui/Toast'
 import { AuthProvider, useAuth } from './lib/auth'
@@ -41,14 +52,14 @@ function PublicRoute({ children }) {
   const { isAuthenticated, loading, user } = useAuth()
   if (loading) return null
   if (isAuthenticated) {
-    return <Navigate to={user?.role === 'admin' ? '/admin' : '/'} replace />
+    return <Navigate to={user?.role === 'admin' ? '/admin/dashboard' : '/'} replace />
   }
   return children
 }
 
 function AdminRedirect() {
   const { user } = useAuth()
-  if (user?.role === 'admin') return <Navigate to="/admin" replace />
+  if (user?.role === 'admin') return <Navigate to="/admin/dashboard" replace />
   return <DashboardPage />
 }
 
@@ -69,7 +80,18 @@ function App() {
               <Route path="/ai-tools" element={<AIToolsPage />} />
               <Route path="/schedule" element={<SchedulePage />} />
               <Route path="/achievements" element={<AchievementsPage />} />
-              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<AdminDashboardView />} />
+                <Route path="users" element={<AdminUsersView />} />
+                <Route path="users/:userId" element={<AdminUserDetailView />} />
+                <Route path="rooms" element={<AdminRoomsView />} />
+                <Route path="ai-usage" element={<AdminAIUsageView />} />
+                <Route path="reports" element={<AdminReportsView />} />
+                <Route path="notifications" element={<AdminNotificationsView />} />
+                <Route path="gamification" element={<AdminGamificationView />} />
+                <Route path="settings" element={<AdminSettingsView />} />
+              </Route>
             </Route>
             <Route path="/create-room" element={<ProtectedRoute><CreateRoomPage /></ProtectedRoute>} />
             <Route path="/room/:id" element={<ProtectedRoute><StudyRoomPage /></ProtectedRoute>} />
