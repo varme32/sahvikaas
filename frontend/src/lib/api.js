@@ -184,6 +184,34 @@ export async function apiUploadAvatar(file) {
   })
 }
 
+export async function apiForgotPassword({ email }) {
+  return apiRequest('/api/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
+export async function apiVerifyResetOtp({ email, otp }) {
+  return apiRequest('/api/auth/verify-reset-otp', {
+    method: 'POST',
+    body: { email, otp },
+  })
+}
+
+export async function apiResetPassword({ email, resetToken, newPassword }) {
+  return apiRequest('/api/auth/reset-password', {
+    method: 'POST',
+    body: { email, resetToken, newPassword },
+  })
+}
+
+export async function apiGoogleAuth({ googleId, email, name, avatar }) {
+  return apiRequest('/api/auth/google', {
+    method: 'POST',
+    body: { googleId, email, name, avatar },
+  })
+}
+
 // ═══════════════════════════════════════════
 // DASHBOARD API
 // ═══════════════════════════════════════════
