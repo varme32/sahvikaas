@@ -8,9 +8,11 @@ import { fileURLToPath } from 'url'
 import { createServer } from 'http'
 import { Server as SocketServer } from 'socket.io'
 import { v4 as uuidv4 } from 'uuid'
+import jwt from 'jsonwebtoken'
 import { connectDB } from './db.js'
 
 // Model imports
+import User from './models/User.js'
 import Room from './models/Room.js'
 import RoomSessionArchive from './models/RoomSessionArchive.js'
 import QuizSession from './models/QuizSession.js'
@@ -25,8 +27,12 @@ import dashboardRoutes from './routes/dashboard.js'
 import roomsRoutes from './routes/rooms.js'
 import notificationRoutes from './routes/notifications.js'
 import adminRoutes from './routes/admin.js'
+import reportsRoutes from './routes/reports.js'
+import { adminAuthMiddleware } from './middleware/adminAuth.js'
 
 dotenv.config()
+
+const JWT_SECRET = process.env.JWT_SECRET || 'studyhub-secret-key-change-in-production'
 
 // Connect to MongoDB
 connectDB()
@@ -321,6 +327,7 @@ app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/rooms', roomsRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/admin', adminRoutes)
+app.use('/api/reports', reportsRoutes)
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads')
@@ -826,11 +833,73 @@ app.get('/api/rooms/:id/state', (req, res) => {
   })
 })
 
+// Admin: live room snapshot (in-memory state)
+app.get('/api/admin/rooms/:id/live', ...adminAuthMiddleware, (req, res) => {
+  const room = rooms.get(req.params.id)
+  if (!room) {
+    return res.json({ ok: true, live: false, snapshot: null })
+  }
+  return res.json({
+    ok: true,
+    live: true,
+    name: room.name,
+    subject: room.subject,
+    createdAt: room.createdAt,
+    participants: getParticipantsList(room),
+    waitingRoom: Array.from(room.waitingRoom.values()),
+    chatTail: room.chatMessages.slice(-40),
+    durationMinutes: Math.max(0, Math.round((Date.now() - new Date(room.createdAt).getTime()) / 60000)),
+  })
+})
+
+app.post('/api/admin/rooms/:id/remove-live-user', ...adminAuthMiddleware, (req, res) => {
+  const meetingId = req.params.id
+  const targetSocketId = req.body?.targetSocketId
+  const room = rooms.get(meetingId)
+  if (!room || !targetSocketId) {
+    return res.status(400).json({ error: 'Invalid live room or socket id' })
+  }
+  const target = room.participants.get(targetSocketId)
+  if (!target) return res.status(404).json({ error: 'Participant not in live room' })
+  room.participants.delete(targetSocketId)
+  const targetSocket = io.sockets.sockets.get(targetSocketId)
+  if (targetSocket) {
+    targetSocket.emit('host-removed-you', { message: 'You were removed by an administrator.' })
+    targetSocket.leave(meetingId)
+  }
+  io.to(meetingId).emit('user-left', { id: targetSocketId })
+  io.to(meetingId).emit('participants-updated', getParticipantsList(room))
+  const removeMsg = {
+    id: uuidv4(),
+    type: 'system',
+    content: `${target.name} was removed by an administrator`,
+    timestamp: Date.now(),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  }
+  room.chatMessages.push(removeMsg)
+  io.to(meetingId).emit('chat-message', removeMsg)
+  io.to(`admin-monitor:${meetingId}`).emit('admin:live-update', { type: 'participant-removed', meetingId })
+  return res.json({ ok: true })
+})
+
 // =============================================
 // SOCKET.IO REAL-TIME COLLABORATION SERVER
 // =============================================
 io.on('connection', (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`)
+
+  socket.on('admin:subscribe-room', async ({ token, meetingId }) => {
+    try {
+      if (!token || !meetingId) return
+      const decoded = jwt.verify(token, JWT_SECRET)
+      const adminUser = await User.findById(decoded.id).select('role')
+      if (!adminUser || adminUser.role !== 'admin') return
+      socket.join(`admin-monitor:${meetingId}`)
+      socket.adminMonitorMeetingId = meetingId
+    } catch (err) {
+      console.warn('admin:subscribe-room denied:', err.message)
+    }
+  })
 
   // ─── JOIN ROOM ───────────────────────────────
   socket.on('join-meeting', async ({ meetingId, userName, isMobile }) => {
@@ -1346,6 +1415,7 @@ io.on('connection', (socket) => {
 
     // Broadcast to ALL in room (including sender, for confirmation)
     io.to(meetingId).emit('chat-message', msg)
+    io.to(`admin-monitor:${meetingId}`).emit('admin:live-update', { type: 'chat', meetingId, msg })
 
     // Award points for chatting (max once per 30s)
     const lastChatPoint = room.points.get(socket.userName)?.activities
