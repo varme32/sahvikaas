@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #1a1a1a; color: #fff; }
+        video { width: 300px; height: 225px; background: #000; border: 2px solid #4CAF50; margin: 10px; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .info { color: #2196F3; }
+        #log { background: #000; padding: 10px; margin-top: 20px; height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>WebRTC Connection Test</h1>
+    <p>This tests if WebRTC works on your network/browser</p>
+    
+    <div>
+        <button onclick="startTest()">Start Test</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div style="display: flex; flex-wrap: wrap;">
+        <div>
+            <h3>Local Video (You)</h3>
+            <video id="localVideo" autoplay muted playsinline></video>
+        </div>
+        <div>
+            <h3>Remote Video (Simulated Peer)</h3>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+    </div>
+    
+    <div id="log"></div>
+
+    <script>
+        let localStream;
+        let pc1, pc2;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        async function startTest() {
+            try {
+                log('🚀 Starting WebRTC test...', 'info');
+                
+                // Step 1: Get local media
+                log('📹 Requesting camera and microphone...', 'info');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+                
+                document.getElementById('localVideo').srcObject = localStream;
+                log(`✅ Got local stream with ${localStream.getTracks().length} tracks`, 'success');
+                localStream.getTracks().forEach(track => {
+                    log(`   - ${track.kind} track: ${track.label} (enabled: ${track.enabled})`, 'info');
+                });
+                
+                // Step 2: Create peer connections
+                log('🔗 Creating peer connections...', 'info');
+                const config = {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        {
+                            urls: 'turn:openrelay.metered.ca:80',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject'
+                        }
+                    ]
+                };
+                
+                pc1 = new RTCPeerConnection(config);
+                pc2 = new RTCPeerConnection(config);
+                
+                // Add tracks to pc1
+                localStream.getTracks().forEach(track => {
+                    const sender = pc1.addTrack(track, localStream);
+                    log(`➕ Added ${track.kind} track to PC1`, 'info');
+                });
+                
+                // Setup ICE candidate exchange
+                pc1.onicecandidate = e => {
+                    if (e.candidate) {
+                        log('🧊 PC1 ICE candidate → PC2', 'info');
+                        pc2.addIceCandidate(e.candidate);
+                    }
+                };
+                
+                pc2.onicecandidate = e => {
+                    if (e.candidate) {
+                        log('🧊 PC2 ICE candidate → PC1', 'info');
+                        pc1.addIceCandidate(e.candidate);
+                    }
+                };
+                
+                // Setup track reception
+                pc2.ontrack = event => {
+                    log(`📥 PC2 received ${event.track.kind} track`, 'success');
+                    const remoteVideo = document.getElementById('remoteVideo');
+                    if (!remoteVideo.srcObject) {
+                        remoteVideo.srcObject = event.streams[0];
+                        log(`✅ Set remote video srcObject`, 'success');
+                    }
+                };
+                
+                // Monitor connection states
+                pc1.oniceconnectionstatechange = () => {
+                    log(`🔌 PC1 ICE state: ${pc1.iceConnectionState}`, 
+                        pc1.iceConnectionState === 'connected' ? 'success' : 'info');
+                };
+                
+                pc2.oniceconnectionstatechange = () => {
+                    log(`🔌 PC2 ICE state: ${pc2.iceConnectionState}`, 
+                        pc2.iceConnectionState === 'connected' ? 'success' : 'info');
+                };
+                
+                // Step 3: Create offer
+                log('📤 PC1 creating offer...', 'info');
+                const offer = await pc1.createOffer();
+                await pc1.setLocalDescription(offer);
+                log('✅ PC1 set local description', 'success');
+                
+                // Step 4: Handle offer
+                log('📥 PC2 receiving offer...', 'info');
+                await pc2.setRemoteDescription(offer);
+                log('✅ PC2 set remote description', 'success');
+                
+                // Step 5: Create answer
+                log('📤 PC2 creating answer...', 'info');
+                const answer = await pc2.createAnswer();
+                await pc2.setLocalDescription(answer);
+                log('✅ PC2 set local description', 'success');
+                
+                // Step 6: Handle answer
+                log('📥 PC1 receiving answer...', 'info');
+                await pc1.setRemoteDescription(answer);
+                log('✅ PC1 set remote description', 'success');
+                
+                log('⏳ Waiting for ICE connection...', 'info');
+                
+                // Wait for connection
+                setTimeout(() => {
+                    if (pc1.iceConnectionState === 'connected' || pc1.iceConnectionState === 'completed') {
+                        log('🎉 SUCCESS! WebRTC is working on your network!', 'success');
+                        log('✅ You should see your video in both boxes', 'success');
+                    } else {
+                        log('❌ Connection failed. ICE state: ' + pc1.iceConnectionState, 'error');
+                        log('⚠️ Your network may be blocking WebRTC', 'error');
+                    }
+                }, 5000);
+                
+            } catch (error) {
+                log('❌ Error: ' + error.message, 'error');
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
