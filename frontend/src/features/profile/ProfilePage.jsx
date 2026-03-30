@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
 import { listMeetings, getAchievementStats, apiUploadAvatar } from '../../lib/api'
+import { getUserRoomHistory, getUserRoomStats } from '../../lib/roomApiV2'
 
 export default function ProfilePage() {
   const { user, updateProfile, logout, refreshUser } = useAuth()
@@ -20,21 +21,52 @@ export default function ProfilePage() {
   const fileInputRef = useRef(null)
   const [myRooms, setMyRooms] = useState([])
   const [stats, setStats] = useState({ totalStudyHours: 0, totalXP: 0, currentStreak: 0 })
+  const [roomsCreatedCount, setRoomsCreatedCount] = useState(0)
 
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const [roomsRes, statsRes] = await Promise.all([
+      const [roomsRes, statsRes, historyRes, roomStatsRes] = await Promise.all([
         listMeetings().catch(() => null),
         getAchievementStats().catch(() => null),
+        getUserRoomHistory().catch(() => null),
+        getUserRoomStats().catch(() => null),
       ])
       if (!mounted) return
-      if (roomsRes?.rooms) setMyRooms(roomsRes.rooms)
-      if (statsRes?.ok) setStats(statsRes.stats || stats)
+
+      const createdRooms = historyRes?.createdRooms || []
+      const joinedRooms = historyRes?.joinedRooms || []
+
+      if (createdRooms.length || joinedRooms.length) {
+        const merged = [...createdRooms, ...joinedRooms].map((room) => ({
+          ...room,
+          id: room.id || room._id,
+        }))
+        setMyRooms(merged)
+        setRoomsCreatedCount(createdRooms.length)
+      } else if (roomsRes?.rooms) {
+        const fallbackRooms = roomsRes.rooms.map((room) => ({
+          ...room,
+          id: room.id || room._id,
+        }))
+        setMyRooms(fallbackRooms)
+        const createdCount = fallbackRooms.filter((room) => String(room.createdBy?._id || room.createdBy) === String(user?._id)).length
+        setRoomsCreatedCount(createdCount)
+      }
+
+      if (statsRes?.ok) {
+        const baseStats = statsRes.stats || {}
+        const roomHours = Number(roomStatsRes?.totalHours) || 0
+        const achievementHours = Number(baseStats.totalStudyHours) || 0
+        setStats({
+          ...baseStats,
+          totalStudyHours: Math.max(achievementHours, roomHours),
+        })
+      }
     }
     load()
     return () => { mounted = false }
-  }, [])
+  }, [user?._id])
 
   const handleSave = async () => {
     setError('')
@@ -266,7 +298,7 @@ export default function ProfilePage() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {[
-          { label: 'Rooms Created', value: myRooms.length, icon: 'ri-video-chat-line', color: 'text-[#F2CF7E] bg-[#F2CF7E]/10' },
+          { label: 'Rooms Created', value: roomsCreatedCount, icon: 'ri-video-chat-line', color: 'text-[#F2CF7E] bg-[#F2CF7E]/10' },
           { label: 'Member Since', value: new Date(user.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), icon: 'ri-calendar-line', color: 'text-[#F2CF7E] bg-[#F2CF7E]/10' },
           { label: 'Study Hours', value: stats.totalStudyHours || 0, icon: 'ri-time-line', color: 'text-[#F2CF7E] bg-[#F2CF7E]/10' },
           { label: 'Total XP', value: (stats.totalXP || 0).toLocaleString(), icon: 'ri-trophy-line', color: 'text-[#F2CF7E] bg-[#F2CF7E]/10' },
@@ -306,12 +338,6 @@ export default function ProfilePage() {
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${room.privacy === 'private' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                     {room.privacy}
                   </span>
-                  <button
-                    onClick={() => navigate(`/room/${room.id}`)}
-                    className="px-3 py-1.5 bg-[#F2CF7E] text-black text-xs font-semibold rounded-lg hover:bg-[#e0bd6c] transition-colors"
-                  >
-                    Enter
-                  </button>
                 </div>
               </div>
             ))}

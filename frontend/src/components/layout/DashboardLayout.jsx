@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/auth'
 import { apiRequest } from '../../lib/api'
 
@@ -10,6 +10,17 @@ const navItems = [
   { path: '/ai-tools', label: 'AI Tools', icon: 'ri-robot-line' },
   { path: '/schedule', label: 'Schedule', icon: 'ri-calendar-line' },
   { path: '/achievements', label: 'Achievements', icon: 'ri-trophy-line' },
+]
+
+const adminNavItems = [
+  { path: '/admin/dashboard', label: 'Dashboard', icon: 'ri-dashboard-line' },
+  { path: '/admin/users', label: 'Users', icon: 'ri-user-line' },
+  { path: '/admin/rooms', label: 'Rooms', icon: 'ri-live-line' },
+  { path: '/admin/ai-usage', label: 'AI usage', icon: 'ri-robot-line' },
+  { path: '/admin/reports', label: 'Reports', icon: 'ri-file-chart-line' },
+  { path: '/admin/notifications', label: 'Notifications', icon: 'ri-notification-3-line' },
+  { path: '/admin/gamification', label: 'Gamification', icon: 'ri-trophy-line' },
+  { path: '/admin/settings', label: 'Settings', icon: 'ri-settings-3-line' },
 ]
 
 function useIsMobile(breakpoint = 768) {
@@ -23,6 +34,7 @@ function useIsMobile(breakpoint = 768) {
 }
 
 export default function DashboardLayout() {
+  const location = useLocation()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -77,6 +89,8 @@ export default function DashboardLayout() {
     } catch {}
   }
 
+  const isAdminRoute = location.pathname.startsWith('/admin')
+
   return (
     <div className="flex h-screen bg-[#eeeeee]">
       {/* Mobile overlay */}
@@ -115,9 +129,36 @@ export default function DashboardLayout() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          {user?.role === 'admin' ? (
+          {user?.role === 'admin' && isAdminRoute ? (
+            <>
+              <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white text-black shadow-sm mb-3">
+                <i className="ri-shield-star-line text-lg" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold truncate">{user?.name}</p>
+                  <p className="text-xs text-black/70">Admin Panel</p>
+                </div>
+              </div>
+              {adminNavItems.map(item => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => isMobile && setSidebarOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-white text-black shadow-sm'
+                        : 'text-black/80 hover:bg-[#e0bd6c] hover:text-black'
+                    }`
+                  }
+                >
+                  <i className={`${item.icon} text-lg`} />
+                  {item.label}
+                </NavLink>
+              ))}
+            </>
+          ) : user?.role === 'admin' ? (
             <NavLink
-              to="/admin"
+              to="/admin/dashboard"
               onClick={() => isMobile && setSidebarOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${

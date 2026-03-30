@@ -56,6 +56,13 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' })
     }
 
+    if (user.banned) {
+      return res.status(403).json({ error: 'This account has been suspended.' })
+    }
+
+    user.lastActiveAt = new Date()
+    await user.save()
+
     const token = generateToken(user._id)
     const safeUser = user.toSafeObject()
 

@@ -333,6 +333,8 @@ export async function getAdminResources(params = {}) {
   if (params.page) query.set('page', params.page)
   if (params.limit) query.set('limit', params.limit)
   if (params.search) query.set('search', params.search)
+  if (params.subject) query.set('subject', params.subject)
+  if (params.userId) query.set('userId', params.userId)
   const qs = query.toString()
   return apiRequest(`/api/admin/resources${qs ? `?${qs}` : ''}`)
 }
@@ -364,5 +366,126 @@ export async function endAdminRoom(id) {
 
 export async function promoteToAdmin(email) {
   return apiRequest('/api/admin/promote', { method: 'POST', body: { email } })
+}
+
+export async function getAdminUserDetail(id) {
+  return apiRequest(`/api/admin/users/${id}/detail`)
+}
+
+export async function banAdminUser(id, reason) {
+  return apiRequest(`/api/admin/users/${id}/ban`, { method: 'POST', body: { reason } })
+}
+
+export async function unbanAdminUser(id) {
+  return apiRequest(`/api/admin/users/${id}/unban`, { method: 'POST' })
+}
+
+export async function warnAdminUser(id, message) {
+  return apiRequest(`/api/admin/users/${id}/warn`, { method: 'POST', body: { message } })
+}
+
+export async function resetAdminUserStats(id) {
+  return apiRequest(`/api/admin/users/${id}/reset-stats`, { method: 'POST' })
+}
+
+export async function updateAdminUserAiQuota(id, data) {
+  return apiRequest(`/api/admin/users/${id}/ai-quota`, { method: 'PUT', body: data })
+}
+
+export async function getAdminAnalyticsAdvanced() {
+  return apiRequest('/api/admin/analytics/advanced')
+}
+
+export async function getAdminAiUsageSummary() {
+  return apiRequest('/api/admin/ai-usage/summary')
+}
+
+export async function getAdminModerationCases(params = {}) {
+  const q = new URLSearchParams()
+  if (params.status) q.set('status', params.status)
+  const qs = q.toString()
+  return apiRequest(`/api/admin/moderation/cases${qs ? `?${qs}` : ''}`)
+}
+
+export async function updateAdminModerationCase(id, data) {
+  return apiRequest(`/api/admin/moderation/cases/${id}`, { method: 'PUT', body: data })
+}
+
+export async function createAdminModerationCase(data) {
+  return apiRequest('/api/admin/moderation/cases', { method: 'POST', body: data })
+}
+
+export async function scanAdminSpam(text) {
+  return apiRequest('/api/admin/moderation/scan', { method: 'POST', body: { text } })
+}
+
+export async function broadcastAdminNotification({ title, message, userIds, broadcastAll }) {
+  return apiRequest('/api/admin/notifications/broadcast', {
+    method: 'POST',
+    body: { title, message, userIds, broadcastAll },
+  })
+}
+
+export async function getAdminGamification() {
+  return apiRequest('/api/admin/gamification')
+}
+
+export async function putAdminGamification(data) {
+  return apiRequest('/api/admin/gamification', { method: 'PUT', body: data })
+}
+
+export async function postAdminGamificationBadge(data) {
+  return apiRequest('/api/admin/gamification/badges', { method: 'POST', body: data })
+}
+
+export async function getAdminXpLeaderboard() {
+  return apiRequest('/api/admin/leaderboard/xp')
+}
+
+export async function getAdminRoomLive(roomId) {
+  return apiRequest(`/api/admin/rooms/${roomId}/live`)
+}
+
+export async function adminRemoveLiveUser(roomId, targetSocketId) {
+  return apiRequest(`/api/admin/rooms/${roomId}/remove-live-user`, {
+    method: 'POST',
+    body: { targetSocketId },
+  })
+}
+
+export async function requestActivityReport(body = {}) {
+  return apiRequest('/api/reports/request', { method: 'POST', body })
+}
+
+export async function getMyReports() {
+  return apiRequest('/api/reports/mine')
+}
+
+export async function getReportsForUser(userId) {
+  return apiRequest(`/api/reports/${userId}`)
+}
+
+export async function adminGenerateReportForUser(userId, body = {}) {
+  return apiRequest(`/api/admin/users/${userId}/reports`, {
+    method: 'POST',
+    body,
+  })
+}
+
+export async function downloadReportBlob(reportId, filename) {
+  const url = `${API_BASE}/api/reports/download/${reportId}`
+  const token = getToken()
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Download failed (${res.status})`)
+  }
+  const blob = await res.blob()
+  const dl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = dl
+  a.download = filename || `report-${reportId}`
+  a.click()
+  URL.revokeObjectURL(dl)
 }
 
