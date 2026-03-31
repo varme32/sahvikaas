@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getRoomSessionArchive } from '../../lib/roomApiV2'
 import { useAuth } from '../../lib/auth'
-import { getFileUrl } from '../../lib/api'
+import { getFileUrl, getPreviewProxyUrl } from '../../lib/api'
 
 const archiveTabs = [
   { id: 'overview', label: 'Overview', icon: 'ri-layout-grid-line' },
@@ -71,16 +71,76 @@ function isVideoFile(resource) {
   return type.startsWith('video') || /\.(mp4|webm|mov)$/i.test(name)
 }
 
+function isTextFile(resource) {
+  const name = (resource.name || '').toLowerCase()
+  return /\.(txt|md|csv|js|py|html|css|json|xml)$/i.test(name)
+}
+
 function isDocFile(resource) {
   const name = (resource.name || '').toLowerCase()
   const type = (resource.type || '').toLowerCase()
-  return type === 'doc' || type === 'docx' || type === 'ppt' || type === 'pptx' || /\.(doc|docx|ppt|pptx|xls|xlsx|txt)$/i.test(name)
+  return type === 'doc' || type === 'docx' || type === 'ppt' || type === 'pptx' || /\.(doc|docx|ppt|pptx|xls|xlsx)$/i.test(name)
 }
 
-// Resource preview component
+// Resource preview component — uses blob approach for PDFs and text
 function ResourcePreview({ resource }) {
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [blobUrl, setBlobUrl] = useState(null)
+  const [textContent, setTextContent] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
   const url = getFileUrl(resource.fileUrl)
+  const proxyUrl = getPreviewProxyUrl(resource.fileUrl)
+
+  // For PDFs and text files, fetch content when component mounts
+  useEffect(() => {
+    if (!url) return
+
+    if (isPdfFile(resource)) {
+      setLoading(true)
+      setError(null)
+      const fetchUrl = proxyUrl || url
+      fetch(fetchUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load PDF: ${res.status}`)
+          return res.arrayBuffer()
+        })
+        .then(buf => {
+          // Create blob with explicit PDF MIME type so browser renders inline
+          const blob = new Blob([buf], { type: 'application/pdf' })
+          setBlobUrl(URL.createObjectURL(blob))
+          setLoading(false)
+        })
+        .catch(err => {
+          console.error('PDF load error:', err)
+          setError(err.message)
+          setLoading(false)
+        })
+    } else if (isTextFile(resource)) {
+      setLoading(true)
+      setError(null)
+      const fetchUrl = proxyUrl || url
+      fetch(fetchUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load text: ${res.status}`)
+          return res.text()
+        })
+        .then(text => {
+          setTextContent(text)
+          setLoading(false)
+        })
+        .catch(err => {
+          console.error('Text load error:', err)
+          setError(err.message)
+          setLoading(false)
+        })
+    }
+
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [resource.fileUrl])
 
   if (!url) return null
 
@@ -116,13 +176,53 @@ function ResourcePreview({ resource }) {
 
   if (isPdfFile(resource)) {
     return (
-      <div className="mt-3 rounded-xl border border-gray-200 overflow-hidden bg-gray-100">
-        <iframe
-          src={`${url}#toolbar=1&navpanes=0`}
-          title={resource.name}
-          className="w-full h-64 border-0"
-          loading="lazy"
-        />
+      <div className="mt-3 rounded-xl border border-gray-200 overflow-hidden bg-gray-100 relative">
+        {loading && (
+          <div className="flex items-center justify-center h-64">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-8 h-8 border-3 border-[#F2CF7E] border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-gray-500">Loading PDF...</p>
+            </div>
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <i className="ri-file-damage-line text-3xl text-gray-300" />
+              <p className="text-xs text-gray-500 mt-2">{error}</p>
+              <a href={url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                Open directly
+              </a>
+            </div>
+          </div>
+        )}
+        {blobUrl && (
+          <iframe
+            src={blobUrl}
+            title={resource.name}
+            className="w-full h-64 border-0"
+          />
+        )}
+      </div>
+    )
+  }
+
+  if (isTextFile(resource)) {
+    return (
+      <div className="mt-3 rounded-xl border border-gray-200 overflow-hidden bg-gray-50">
+        {loading && (
+          <div className="flex items-center justify-center h-40">
+            <div className="w-6 h-6 border-2 border-[#F2CF7E] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {error && (
+          <div className="p-4 text-center text-xs text-gray-500">{error}</div>
+        )}
+        {textContent && (
+          <div className="max-h-64 overflow-auto p-4">
+            <pre className="text-xs text-gray-800 font-mono whitespace-pre-wrap break-words">{textContent}</pre>
+          </div>
+        )}
       </div>
     )
   }

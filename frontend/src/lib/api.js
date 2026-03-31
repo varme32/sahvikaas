@@ -23,6 +23,23 @@ export function getFileUrl(path) {
   return `${API_BASE}${path}`
 }
 
+export function getPreviewProxyUrl(fileUrl) {
+  if (!fileUrl) return null
+  const absolute = getFileUrl(fileUrl)
+  if (!absolute) return null
+  // Only proxy Cloudinary URLs (keeps normal URLs untouched)
+  try {
+    const u = new URL(absolute)
+    const host = (u.hostname || '').toLowerCase()
+    const isCloudinary = host === 'res.cloudinary.com' || host.endsWith('.cloudinary.com')
+    if (!isCloudinary) return absolute
+    // Proxy through backend to force inline rendering and avoid CORS/download quirks
+    return `${API_BASE}/api/resources/proxy?url=${encodeURIComponent(absolute)}`
+  } catch {
+    return absolute
+  }
+}
+
 // ─── Core request helper ───
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`
@@ -154,6 +171,20 @@ export async function apiSignup({ name, email, password }) {
   return apiRequest('/api/auth/signup', {
     method: 'POST',
     body: { name, email, password },
+  })
+}
+
+export async function apiSignupSendOtp({ name, email, password }) {
+  return apiRequest('/api/auth/signup-send-otp', {
+    method: 'POST',
+    body: { name, email, password },
+  })
+}
+
+export async function apiSignupVerifyOtp({ email, otp }) {
+  return apiRequest('/api/auth/signup-verify-otp', {
+    method: 'POST',
+    body: { email, otp },
   })
 }
 

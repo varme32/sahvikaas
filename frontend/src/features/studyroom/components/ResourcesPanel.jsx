@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Modal from '../../../components/ui/Modal'
 import { getSocket } from '../../../lib/socket'
-import { getToken, getFileUrl } from '../../../lib/api'
+import { getToken, getFileUrl, getPreviewProxyUrl } from '../../../lib/api'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -27,6 +27,164 @@ function getTypeFromExt(filename) {
 
 function getTypeInfo(type) {
   return RESOURCE_TYPES.find(t => t.value === type) || RESOURCE_TYPES[RESOURCE_TYPES.length - 1]
+}
+
+// Self-contained preview component that handles blob-based PDF/text rendering
+function ResourcePreviewView({ previewFile, onBack, getPreviewConfig }) {
+  const [blobUrl, setBlobUrl] = useState(null)
+  const [textContent, setTextContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const preview = getPreviewConfig(previewFile)
+  const typeInfo = getTypeInfo(previewFile.type)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    setBlobUrl(null)
+    setTextContent('')
+
+    if (preview?.type === 'pdf') {
+      // Fetch PDF as blob with explicit MIME type so browser uses its PDF viewer
+      fetch(preview.fetchUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load PDF: ${res.status}`)
+          return res.arrayBuffer()
+        })
+        .then(buf => {
+          const blob = new Blob([buf], { type: 'application/pdf' })
+          setBlobUrl(URL.createObjectURL(blob))
+          setLoading(false)
+        })
+        .catch(err => {
+          console.error('PDF load error:', err)
+          setError(err.message)
+          setLoading(false)
+        })
+    } else if (preview?.type === 'text') {
+      fetch(preview.fetchUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load text: ${res.status}`)
+          return res.text()
+        })
+        .then(text => {
+          setTextContent(text)
+          setLoading(false)
+        })
+        .catch(err => {
+          console.error('Text load error:', err)
+          setError(err.message)
+          setLoading(false)
+        })
+    } else {
+      setLoading(false)
+    }
+
+    return () => {
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
+    }
+  }, [previewFile.fileUrl])
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-sm text-black hover:text-[#e0bd6c]"
+        >
+          <i className="ri-arrow-left-s-line" />
+          Back to Files
+        </button>
+        {previewFile.fileUrl && (
+          <a
+            href={getFileUrl(previewFile.fileUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+          >
+            <i className="ri-external-link-line" />
+            Open in new tab
+          </a>
+        )}
+      </div>
+      <div className="px-3 py-2 border-b border-gray-50 bg-gray-50 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${typeInfo.color}`}>
+            <i className={`${typeInfo.icon} text-base`} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">{previewFile.name || previewFile.title}</p>
+            <p className="text-xs text-gray-400">{previewFile.size} · {previewFile.type}{previewFile.uploadedBy && ` · by ${previewFile.uploadedBy}`}</p>
+          </div>
+        </div>
+        {previewFile.tags && previewFile.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {previewFile.tags.map((tag, i) => (
+              <span key={i} className="text-xs px-2 py-0.5 bg-[#F2CF7E]/10 text-black rounded-full">{tag}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 overflow-hidden relative">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-8 h-8 border-3 border-[#F2CF7E] border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-gray-500">Loading preview...</p>
+            </div>
+          </div>
+        )}
+        {error && (
+          <div className="h-full flex items-center justify-center text-gray-400">
+            <div className="text-center">
+              <i className="ri-file-damage-line text-4xl text-gray-300" />
+              <p className="text-xs mt-2 text-gray-500">{error}</p>
+              {previewFile.fileUrl && (
+                <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-2 inline-block">
+                  Download file
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+        {preview?.type === 'image' && (
+          <div className="h-full flex items-center justify-center p-4 bg-gray-50">
+            <img src={preview.url} alt={previewFile.name} className="max-w-full max-h-full object-contain rounded-lg shadow-sm" onLoad={() => setLoading(false)} />
+          </div>
+        )}
+        {preview?.type === 'video' && (
+          <div className="h-full flex items-center justify-center p-4 bg-black">
+            <video src={preview.url} controls className="max-w-full max-h-full rounded-lg" onLoadedData={() => setLoading(false)} />
+          </div>
+        )}
+        {preview?.type === 'pdf' && blobUrl && (
+          <iframe src={blobUrl} className="w-full h-full border-none" title={previewFile.name || previewFile.title} />
+        )}
+        {preview?.type === 'text' && textContent && (
+          <div className="w-full h-full overflow-auto p-4">
+            <pre className="text-xs text-gray-800 font-mono whitespace-pre-wrap break-words">{textContent}</pre>
+          </div>
+        )}
+        {preview?.type === 'iframe' && (
+          <iframe src={preview.url} className="w-full h-full border-none" title={previewFile.name || previewFile.title} onLoad={() => setLoading(false)} />
+        )}
+        {!preview && !loading && !error && (
+          <div className="h-full flex items-center justify-center text-gray-400">
+            <div className="text-center">
+              <i className={`${typeInfo.icon} text-5xl ${typeInfo.color.split(' ')[0]}`} />
+              <p className="text-sm mt-3">Preview not available</p>
+              {previewFile.fileUrl && (
+                <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                  Download file
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function ResourcesPanel({ roomId, resources: resourcesProp, folders: foldersProp }) {
@@ -185,111 +343,48 @@ export default function ResourcesPanel({ roomId, resources: resourcesProp, folde
     }
   }
 
-  const getPreviewUrl = (resource) => {
+  const getPreviewConfig = (resource) => {
     if (!resource?.fileUrl) return null
     const url = getFileUrl(resource.fileUrl)
-    const name = (resource.name || '').toLowerCase()
+    const name = (resource.name || resource.title || '').toLowerCase()
     const type = (resource.type || '').toUpperCase()
 
-    // Images: render directly
-    if (type === 'IMAGE' || /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(name)) {
+    // Images: render directly in <img>
+    if (type === 'IMAGE' || /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name)) {
       return { type: 'image', url }
     }
-    // Videos: render in video element
+    // Videos: render in <video>
     if (type === 'VIDEO' || /\.(mp4|webm|ogg)$/i.test(name)) {
       return { type: 'video', url }
     }
-    // PDFs: use native browser iframe (Google Docs Viewer fails on localhost)
-    if (type === 'PDF' || name.endsWith('.pdf')) {
-      return { type: 'iframe', url }
+    // PDFs: fetch via proxy as blob for inline rendering
+    if (type === 'PDF' || /\.pdf$/i.test(name)) {
+      const proxyUrl = getPreviewProxyUrl(resource.fileUrl)
+      return { type: 'pdf', fetchUrl: proxyUrl || url }
     }
-    // Other Docs (DOC/PPT): use Google Docs Viewer ONLY if it's an external URL (not localhost)
-    if (type === 'DOC' || type === 'PPT' || /\.(doc|docx|ppt|pptx|xls|xlsx|txt)$/i.test(name)) {
-      if (url.startsWith('http') && !url.includes('localhost') && !url.includes('127.0.0.1')) {
+    // Text files: fetch and display as text
+    if (/\.(txt|md|csv|js|py|html|css|json)$/i.test(name)) {
+      const proxyUrl = getPreviewProxyUrl(resource.fileUrl)
+      return { type: 'text', fetchUrl: proxyUrl || url }
+    }
+    // DOC/PPT/XLS: Google Docs Viewer
+    if (type === 'DOC' || type === 'PPT' || /\.(doc|docx|ppt|pptx|xls|xlsx)$/i.test(name)) {
+      if (url && url.startsWith('http')) {
         return { type: 'iframe', url: `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true` }
       }
-      // On localhost, we can't preview DOC/PPT via Google Docs Viewer
       return null
     }
-    
+
     return null
   }
 
-  // Preview mode
+  // Preview mode — handles PDF blobs and text content
   if (previewFile) {
-    const preview = getPreviewUrl(previewFile)
-    const typeInfo = getTypeInfo(previewFile.type)
-
-    return (
-      <div className="flex flex-col h-full">
-        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0">
-          <button
-            onClick={() => setPreviewFile(null)}
-            className="flex items-center gap-1 text-sm text-black hover:text-[#e0bd6c]"
-          >
-            <i className="ri-arrow-left-s-line" />
-            Back to Files
-          </button>
-          {previewFile.fileUrl && (
-            <a
-              href={getFileUrl(previewFile.fileUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
-            >
-              <i className="ri-external-link-line" />
-              Open in new tab
-            </a>
-          )}
-        </div>
-        <div className="px-3 py-2 border-b border-gray-50 bg-gray-50 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${typeInfo.color}`}>
-              <i className={`${typeInfo.icon} text-base`} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">{previewFile.name}</p>
-              <p className="text-xs text-gray-400">{previewFile.size} · {previewFile.type} · by {previewFile.uploadedBy}</p>
-            </div>
-          </div>
-          {previewFile.tags && previewFile.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {previewFile.tags.map((tag, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 bg-[#F2CF7E]/10 text-black rounded-full">{tag}</span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex-1 overflow-hidden">
-          {preview?.type === 'image' && (
-            <div className="h-full flex items-center justify-center p-4 bg-gray-50">
-              <img src={preview.url} alt={previewFile.name} className="max-w-full max-h-full object-contain rounded-lg shadow-sm" />
-            </div>
-          )}
-          {preview?.type === 'video' && (
-            <div className="h-full flex items-center justify-center p-4 bg-black">
-              <video src={preview.url} controls className="max-w-full max-h-full rounded-lg" />
-            </div>
-          )}
-          {preview?.type === 'iframe' && (
-            <iframe src={preview.url} className="w-full h-full border-none" title={previewFile.name} />
-          )}
-          {!preview && (
-            <div className="h-full flex items-center justify-center text-gray-400">
-              <div className="text-center">
-                <i className={`${typeInfo.icon} text-5xl ${typeInfo.color.split(' ')[0]}`} />
-                <p className="text-sm mt-3">Preview not available</p>
-                {previewFile.fileUrl && (
-                  <a href={getFileUrl(previewFile.fileUrl)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
-                    Download file
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    )
+    return <ResourcePreviewView
+      previewFile={previewFile}
+      onBack={() => setPreviewFile(null)}
+      getPreviewConfig={getPreviewConfig}
+    />
   }
 
   return (

@@ -6,6 +6,8 @@ import {
   apiVerifyResetOtp,
   apiResetPassword,
   apiGoogleAuth,
+  apiSignupSendOtp,
+  apiSignupVerifyOtp,
 } from '../../lib/api'
 
 // ─── Google Client ID (set VITE_GOOGLE_CLIENT_ID in frontend/.env) ───
@@ -360,9 +362,10 @@ function LoginForm({ onSwitch, onSuccess, onForgotPassword }) {
   )
 }
 
-// ─── Signup Form ───
+// ─── Signup Form (with OTP verification) ───
 function SignupForm({ onSwitch, onSuccess }) {
   const { signup } = useAuth()
+  const [step, setStep] = useState(1) // 1 = details, 2 = OTP verification
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -370,7 +373,17 @@ function SignupForm({ onSwitch, onSuccess }) {
   const [showPassword, setShowPassword] = useState(false)
   const [agreeTerms, setAgreeTerms] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [otp, setOtp] = useState('')
+  const [countdown, setCountdown] = useState(0)
+
+  // Countdown timer for OTP resend
+  useEffect(() => {
+    if (countdown <= 0) return
+    const id = setInterval(() => setCountdown(c => c - 1), 1000)
+    return () => clearInterval(id)
+  }, [countdown])
 
   const getPasswordStrength = () => {
     let score = 0
@@ -385,9 +398,11 @@ function SignupForm({ onSwitch, onSuccess }) {
   const strengthLabel = ['', 'Weak', 'Fair', 'Good', 'Strong'][strength]
   const strengthColor = ['bg-gray-200', 'bg-red-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500'][strength]
 
-  const handleSubmit = async (e) => {
+  // Step 1: Validate fields and send OTP
+  const handleSendOtp = async (e) => {
     e.preventDefault()
     setError('')
+    setSuccess('')
     if (!name || !email || !password || !confirmPassword) {
       setError('Please fill in all fields.')
       return
@@ -396,27 +411,175 @@ function SignupForm({ onSwitch, onSuccess }) {
       setError('Passwords do not match.')
       return
     }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.')
+      return
+    }
     if (!agreeTerms) {
       setError('Please agree to the Terms of Service.')
       return
     }
     setLoading(true)
     try {
-      const result = await signup({ name, email, password })
-      setLoading(false)
-      if (!result.ok) {
-        setError(result.error)
-        return
+      const data = await apiSignupSendOtp({ name, email, password })
+      if (data.ok) {
+        setStep(2)
+        setCountdown(60)
+        setSuccess('Verification code sent! Check your inbox (and spam folder).')
+      } else {
+        setError(data.error || 'Failed to send verification code.')
       }
-      onSuccess()
     } catch (err) {
-      setLoading(false)
-      setError(err.message || 'Signup failed.')
+      setError(err.message || 'Failed to send verification code.')
     }
+    setLoading(false)
   }
 
+  // Step 2: Verify OTP and create account
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    if (otp.length !== 6) {
+      setError('Please enter a valid 6-digit code.')
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await apiSignupVerifyOtp({ email, otp })
+      if (data.ok) {
+        // Set token and user data
+        localStorage.setItem('studyhub-token', data.token)
+        localStorage.setItem('studyhub-current-user', JSON.stringify(data.user))
+        sessionStorage.setItem('studyhub-username', data.user.name)
+        // Reload to hydrate auth context
+        window.location.href = window.location.origin + '/'
+      } else {
+        setError(data.error || 'Invalid or expired OTP.')
+      }
+    } catch (err) {
+      setError(err.message || 'Invalid or expired OTP.')
+    }
+    setLoading(false)
+  }
+
+  // Resend OTP
+  const handleResendOtp = async () => {
+    if (countdown > 0) return
+    setError('')
+    setSuccess('')
+    setLoading(true)
+    try {
+      const data = await apiSignupSendOtp({ name, email, password })
+      if (data.ok) {
+        setCountdown(60)
+        setOtp('')
+        setSuccess('A new verification code has been sent to your email.')
+      } else {
+        setError(data.error || 'Failed to resend code.')
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to resend code.')
+    }
+    setLoading(false)
+  }
+
+  // ── Step 2: OTP Verification ──
+  if (step === 2) {
+    return (
+      <form onSubmit={handleVerifyOtp}>
+        <h2 className="text-2xl font-bold text-black mb-1">Verify your email</h2>
+        <p className="text-gray-600 text-sm mb-1">We sent a 6-digit verification code to:</p>
+        <p className="text-[#F2CF7E] font-semibold text-sm mb-5 truncate">{email}</p>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+            <i className="ri-error-warning-line" />
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+            <i className="ri-checkbox-circle-line" />
+            {success}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {/* OTP visual */}
+          <div className="relative">
+            <div className="flex justify-center gap-2 mb-1">
+              {[0,1,2,3,4,5].map(i => (
+                <div
+                  key={i}
+                  className={`w-11 h-14 rounded-lg border-2 flex items-center justify-center text-xl font-bold transition-all ${
+                    otp[i]
+                      ? 'border-[#F2CF7E] bg-[#F2CF7E]/10 text-black'
+                      : 'border-gray-300 bg-white text-gray-300'
+                  }`}
+                >
+                  {otp[i] || '•'}
+                </div>
+              ))}
+            </div>
+            <input
+              type="text"
+              id="signup-otp-input"
+              value={otp}
+              onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              inputMode="numeric"
+              autoFocus
+              className="absolute inset-0 w-full h-full opacity-0 cursor-text"
+              style={{ caretColor: 'transparent' }}
+            />
+          </div>
+
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-400">
+              {otp.length}/6 digits entered
+            </span>
+            <button
+              type="button"
+              onClick={handleResendOtp}
+              disabled={countdown > 0 || loading}
+              className="text-xs font-medium text-[#F2CF7E] hover:text-[#e0bd6c] disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+            >
+              {countdown > 0 ? `Resend in ${countdown}s` : 'Resend code'}
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            id="signup-verify-otp-btn"
+            disabled={loading || otp.length !== 6}
+            className="w-full h-12 bg-[#F2CF7E] text-black rounded-lg font-semibold hover:bg-[#e0bd6c] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <i className="ri-loader-4-line animate-spin text-xl" /> : <><i className="ri-check-line" /> Verify & Create Account</>}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => { setStep(1); setError(''); setOtp(''); setSuccess('') }}
+          className="w-full text-center text-xs text-gray-400 hover:text-gray-600 mt-4 transition-colors"
+        >
+          ← Back to signup details
+        </button>
+
+        <p className="text-center text-sm text-gray-600 mt-4">
+          Already have an account?{' '}
+          <button type="button" onClick={onSwitch} className="text-[#F2CF7E] font-medium hover:text-[#e0bd6c] transition-colors">
+            Sign in
+          </button>
+        </p>
+      </form>
+    )
+  }
+
+  // ── Step 1: Signup details ──
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSendOtp}>
       <h2 className="text-2xl font-bold text-black mb-1">Create your account</h2>
       <p className="text-gray-600 text-sm mb-6">Start your collaborative learning journey</p>
 
@@ -516,9 +679,9 @@ function SignupForm({ onSwitch, onSuccess }) {
           type="submit"
           id="signup-submit-btn"
           disabled={loading}
-          className="w-full h-12 bg-[#F2CF7E] text-black rounded-lg font-semibold hover:bg-[#e0bd6c] transition-colors disabled:opacity-50 flex items-center justify-center"
+          className="w-full h-12 bg-[#F2CF7E] text-black rounded-lg font-semibold hover:bg-[#e0bd6c] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {loading ? <i className="ri-loader-4-line animate-spin text-xl" /> : 'Create Account'}
+          {loading ? <i className="ri-loader-4-line animate-spin text-xl" /> : <><i className="ri-mail-send-line" /> Send Verification Code</>}
         </button>
       </div>
 

@@ -1,12 +1,63 @@
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import multer from 'multer'
-import { upload } from '../config/cloudinary.js'
+import cloudinary, { upload } from '../config/cloudinary.js'
 import { authMiddleware } from '../middleware/auth.js'
 import Resource, { Folder } from '../models/Resource.js'
 import User from '../models/User.js'
 
 const router = express.Router()
+
+function isAllowedProxyUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false
+  let u
+  try {
+    u = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+  // Allow Cloudinary and same-origin relative URLs only
+  const host = (u.hostname || '').toLowerCase()
+  if (host === 'res.cloudinary.com' || host.endsWith('.cloudinary.com')) return true
+  return false
+}
+
+function guessContentType({ url, fallback = 'application/octet-stream' }) {
+  try {
+    const pathname = new URL(url).pathname || ''
+    const ext = pathname.split('.').pop()?.toLowerCase()
+    const map = {
+      pdf: 'application/pdf',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+      ogg: 'video/ogg',
+      txt: 'text/plain; charset=utf-8',
+    }
+    return map[ext] || fallback
+  } catch {
+    return fallback
+  }
+}
+
+function extractCloudinaryPublicId(cloudinaryUrl) {
+  if (!cloudinaryUrl || typeof cloudinaryUrl !== 'string') return null
+  // Example:
+  // https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/v<version>/<folder>/<public_id>.<ext>
+  const m = cloudinaryUrl.match(/\/(image|raw|video)\/upload\/(v\d+\/)?(.+)$/)
+  if (!m) return null
+  const resourceType = m[1] // 'image' | 'raw' | 'video'
+  const version = m[2] || '' // 'v1234567890/' or empty
+  const tail = m[3] // '<folder>/<public_id>.<ext>' (public_id can contain '/')
+  const publicId = tail.replace(/\.[^/.]+$/, '') // drop extension
+  return { publicId, resourceType, version: version.replace(/\//g, '') }
+}
 
 // File upload endpoint with Cloudinary
 router.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
@@ -82,6 +133,175 @@ router.use((err, req, res, next) => {
     })
   }
   next()
+})
+
+// Inline proxy for previews (prevents forced downloads / CORS issues).
+// IMPORTANT: only allows Cloudinary URLs to avoid SSRF.
+router.get('/proxy', async (req, res) => {
+  try {
+    const url = req.query.url
+    console.log('Proxy request for URL:', url)
+    
+    if (!isAllowedProxyUrl(url)) {
+      console.error('URL not allowed:', url)
+      return res.status(400).json({ error: 'Invalid or disallowed URL.' })
+    }
+
+    // CRITICAL: Set CORS headers FIRST before any other operations
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type, Content-Disposition')
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end()
+    }
+
+    // Forward range requests (PDF viewers often request byte ranges)
+    const fetchOptions = {
+      headers: {
+        ...(req.headers.range ? { range: req.headers.range } : {}),
+        ...(req.headers.accept ? { accept: req.headers.accept } : {}),
+        ...(req.headers['user-agent'] ? { 'user-agent': req.headers['user-agent'] } : {}),
+      },
+      redirect: 'follow',
+    }
+
+    let upstream = await fetch(url, fetchOptions)
+    console.log('Initial fetch status:', upstream.status, upstream.statusText)
+
+    // For Cloudinary URLs, generate signed URLs when needed
+    // (auth failures or raw resource type which forces attachment download)
+    const extracted = extractCloudinaryPublicId(url)
+    
+    if (extracted?.publicId && (upstream.status === 401 || upstream.status === 403 || extracted.resourceType === 'raw')) {
+      console.log('Extracted public ID:', extracted)
+      
+      try {
+        // Try different resource types since files might be uploaded with wrong type
+        const resourceTypesToTry = [
+          extracted.resourceType, // Try the detected type first
+          'raw',                  // Then try raw (for PDFs, docs)
+          'image',                // Then try image
+          'video'                 // Finally try video
+        ]
+        
+        // Remove duplicates
+        const uniqueTypes = [...new Set(resourceTypesToTry)]
+        
+        for (const resType of uniqueTypes) {
+          console.log('Trying resource type:', resType)
+          
+          // Generate a signed URL WITHOUT any transformations.
+          // The proxy itself handles Content-Disposition: inline,
+          // so we don't need Cloudinary flags. Previously fl_attachment
+          // was used here by mistake which FORCED downloads.
+          const signedUrl = cloudinary.url(extracted.publicId, {
+            type: 'upload',
+            sign_url: true,
+            secure: true,
+            resource_type: resType,
+          })
+
+          console.log('Generated signed URL:', signedUrl)
+          const retry = await fetch(signedUrl, fetchOptions)
+          console.log(`Retry with ${resType}:`, retry.status)
+          
+          if (retry.ok) {
+            upstream = retry
+            break
+          }
+        }
+      } catch (e) {
+        console.error('Signing error:', e)
+        // If signing fails, we'll use the original response
+      }
+    }
+
+    if (!upstream.ok) {
+      return res
+        .status(upstream.status)
+        .json({
+          error: 'Failed to fetch resource.',
+          upstreamStatus: upstream.status,
+          upstreamStatusText: upstream.statusText,
+          url,
+        })
+    }
+
+    // Get the body as a buffer FIRST to have full control over response
+    const buffer = Buffer.from(await upstream.arrayBuffer())
+
+    const upstreamType = upstream.headers.get('content-type') || ''
+    // Guess content type from the URL extension
+    let guessed = guessContentType({ url })
+    
+    // If the guessed type is still generic, try to detect from the buffer (magic bytes)
+    if (guessed === 'application/octet-stream' && buffer.length >= 5) {
+      // PDF magic bytes: %PDF-
+      if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46 && buffer[4] === 0x2D) {
+        guessed = 'application/pdf'
+      }
+      // PNG magic bytes
+      else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        guessed = 'image/png'
+      }
+      // JPEG magic bytes
+      else if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+        guessed = 'image/jpeg'
+      }
+      // Check if it looks like text (high ratio of printable ASCII)
+      else {
+        let printable = 0
+        const sampleSize = Math.min(buffer.length, 512)
+        for (let i = 0; i < sampleSize; i++) {
+          if ((buffer[i] >= 0x20 && buffer[i] <= 0x7E) || buffer[i] === 0x0A || buffer[i] === 0x0D || buffer[i] === 0x09) {
+            printable++
+          }
+        }
+        if (printable / sampleSize > 0.85) {
+          guessed = 'text/plain; charset=utf-8'
+        }
+      }
+    }
+
+    // Prefer the extension-derived / magic-byte type over application/octet-stream so that
+    // files Cloudinary stored as 'raw' (PDFs, docs, etc.) render inline instead
+    // of being force-downloaded by the browser.
+    const isGeneric = !upstreamType || upstreamType === 'application/octet-stream'
+    const contentType = isGeneric ? guessed : upstreamType
+
+    console.log('Content-Type:', contentType, '(upstream:', upstreamType, ', guessed:', guessed, ')')
+
+    // Set response status and headers
+    res.status(upstream.status)
+    res.setHeader('Content-Type', contentType)
+    
+    // ALWAYS force inline display — this is the whole point of the proxy
+    res.setHeader('Content-Disposition', 'inline')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+
+    const contentLength = buffer.length
+    res.setHeader('Content-Length', contentLength)
+
+    console.log('Final response headers:', {
+      'Content-Type': contentType,
+      'Content-Disposition': 'inline',
+      'Content-Length': contentLength,
+    })
+    console.log('Sending buffer of size:', buffer.length, 'bytes')
+    
+    // Send the response with our headers
+    res.send(buffer)
+  } catch (err) {
+    console.error('Proxy error:', err)
+    res.status(500).json({
+      error: 'Failed to proxy resource.',
+      details: err instanceof Error ? err.message : String(err),
+    })
+  }
 })
 
 // Proxy endpoint to serve files with inline content-disposition

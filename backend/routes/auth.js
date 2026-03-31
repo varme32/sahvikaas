@@ -8,9 +8,9 @@ const router = express.Router()
 
 // ─── EMAILJS REST API SENDER ───
 // Docs: https://www.emailjs.com/docs/rest-api/send/
-async function sendOtpViaEmailJS({ toEmail, toName, otp }) {
+async function sendOtpViaEmailJS({ toEmail, toName, otp, templateIdOverride }) {
   const serviceId  = process.env.EMAILJS_SERVICE_ID
-  const templateId = process.env.EMAILJS_TEMPLATE_ID
+  const templateId = templateIdOverride || process.env.EMAILJS_TEMPLATE_ID
   const publicKey  = process.env.EMAILJS_PUBLIC_KEY
   const privateKey = process.env.EMAILJS_PRIVATE_KEY
 
@@ -50,7 +50,125 @@ async function sendOtpViaEmailJS({ toEmail, toName, otp }) {
   return true
 }
 
-// ─── SIGNUP ───
+// ─── In-memory store for pending signups (OTP not yet verified) ───
+// Key: email (lowercase), Value: { name, email, password, hashedOtp, expiresAt }
+const pendingSignups = new Map()
+
+// Clean up expired entries every 5 minutes
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, val] of pendingSignups.entries()) {
+    if (val.expiresAt < now) pendingSignups.delete(key)
+  }
+}, 5 * 60 * 1000)
+
+// ─── SIGNUP STEP 1: Send OTP ───
+router.post('/signup-send-otp', async (req, res) => {
+  try {
+    const { name, email, password } = req.body
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' })
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+    }
+
+    const normalizedEmail = email.toLowerCase().trim()
+    const existingUser = await User.findOne({ email: normalizedEmail })
+    if (existingUser) {
+      return res.status(400).json({ error: 'An account with this email already exists.' })
+    }
+
+    // Generate a secure 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999).toString()
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex')
+
+    // Store pending signup data in memory (expires in 15 minutes)
+    pendingSignups.set(normalizedEmail, {
+      name: name.trim(),
+      email: normalizedEmail,
+      password,
+      hashedOtp,
+      expiresAt: Date.now() + 15 * 60 * 1000,
+    })
+
+    // Send OTP email via EmailJS
+    try {
+      await sendOtpViaEmailJS({
+        toEmail: normalizedEmail,
+        toName: name.trim(),
+        otp,
+        templateIdOverride: 'template_trgsdke',
+      })
+      console.log(`Signup verification OTP sent via EmailJS to: ${normalizedEmail}`)
+    } catch (emailErr) {
+      console.error('EmailJS send failed:', emailErr.message)
+      pendingSignups.delete(normalizedEmail)
+      return res.status(500).json({ error: `Failed to send OTP email: ${emailErr.message}` })
+    }
+
+    res.json({ ok: true, message: 'Verification OTP sent to your email.' })
+  } catch (err) {
+    console.error('Signup send OTP error:', err)
+    res.status(500).json({ error: 'Server error during signup.' })
+  }
+})
+
+// ─── SIGNUP STEP 2: Verify OTP & Create Account ───
+router.post('/signup-verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body
+    if (!email || !otp) {
+      return res.status(400).json({ error: 'Email and OTP are required.' })
+    }
+
+    const normalizedEmail = email.toLowerCase().trim()
+    const pending = pendingSignups.get(normalizedEmail)
+
+    if (!pending) {
+      return res.status(400).json({ error: 'No pending signup found. Please start the signup process again.' })
+    }
+
+    if (pending.expiresAt < Date.now()) {
+      pendingSignups.delete(normalizedEmail)
+      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' })
+    }
+
+    const hashedOtp = crypto.createHash('sha256').update(otp.trim()).digest('hex')
+    if (hashedOtp !== pending.hashedOtp) {
+      return res.status(400).json({ error: 'Invalid OTP. Please try again.' })
+    }
+
+    // Double-check no user was created in the meantime
+    const existingUser = await User.findOne({ email: normalizedEmail })
+    if (existingUser) {
+      pendingSignups.delete(normalizedEmail)
+      return res.status(400).json({ error: 'An account with this email already exists.' })
+    }
+
+    // Create the verified user
+    const user = new User({
+      name: pending.name,
+      email: normalizedEmail,
+      password: pending.password,
+      isEmailVerified: true,
+    })
+    await user.save()
+
+    // Clean up pending entry
+    pendingSignups.delete(normalizedEmail)
+
+    const token = generateToken(user._id)
+    const safeUser = user.toSafeObject()
+
+    res.status(201).json({ ok: true, token, user: safeUser })
+  } catch (err) {
+    console.error('Signup verify OTP error:', err)
+    res.status(500).json({ error: 'Server error during signup.' })
+  }
+})
+
+// ─── SIGNUP (legacy fallback — kept for compatibility) ───
 router.post('/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../lib/auth'
 import { getToken } from '../../lib/api'
+import PreviewModal from './PreviewModal'
 
 // ─── API Functions ───
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000'
@@ -581,8 +582,10 @@ export default function ResourcesPage() {
   
   const [showResourceModal, setShowResourceModal] = useState(false)
   const [showFolderModal, setShowFolderModal] = useState(false)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [editingResource, setEditingResource] = useState(null)
   const [editingFolder, setEditingFolder] = useState(null)
+  const [previewingResource, setPreviewingResource] = useState(null)
 
   // Load data
   const loadData = async () => {
@@ -670,35 +673,11 @@ export default function ResourcesPage() {
       return
     }
 
-    const fileUrl = resource.fileUrl
-    const fileName = resource.title.toLowerCase()
+    console.log('Opening resource:', resource.title, resource.type)
     
-    // Document formats that Google Docs Viewer can display
-    const documentFormats = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt']
-    const isDocument = documentFormats.some(ext => fileName.endsWith(ext))
-    
-    // Image formats
-    const imageFormats = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']
-    const isImage = imageFormats.some(ext => fileName.endsWith(ext))
-    
-    // Video formats
-    const videoFormats = ['.mp4', '.webm', '.ogg']
-    const isVideo = videoFormats.some(ext => fileName.endsWith(ext))
-
-    if (isDocument) {
-      // Use Google Docs Viewer for all document formats
-      const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`
-      window.open(googleViewerUrl, '_blank')
-    } 
-    else if (isImage || isVideo) {
-      // Open images and videos directly (Cloudinary serves these inline)
-      window.open(fileUrl, '_blank')
-    }
-    else {
-      // For other formats, try Google Docs Viewer anyway
-      const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`
-      window.open(googleViewerUrl, '_blank')
-    }
+    // Open in preview modal
+    setPreviewingResource(resource)
+    setShowPreviewModal(true)
   }
 
   const handleCreateFolder = () => {
@@ -1025,6 +1004,16 @@ export default function ResourcesPage() {
             setShowFolderModal(false)
             setEditingFolder(null)
             loadData()
+          }}
+        />
+      )}
+
+      {showPreviewModal && previewingResource && (
+        <PreviewModal
+          resource={previewingResource}
+          onClose={() => {
+            setShowPreviewModal(false)
+            setPreviewingResource(null)
           }}
         />
       )}

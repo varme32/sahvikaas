@@ -31,12 +31,13 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     try {
       // Determine resource type based on file mimetype
-      let resourceType = 'raw' // Default for documents
+      let resourceType = 'raw' // Default to 'raw' for documents
       if (file.mimetype.startsWith('image/')) {
         resourceType = 'image'
       } else if (file.mimetype.startsWith('video/')) {
         resourceType = 'video'
       }
+      // PDFs, docs, and other files will use 'raw' type
 
       // Generate a safe public_id
       const timestamp = Date.now()
@@ -49,6 +50,8 @@ const storage = new CloudinaryStorage({
         folder: 'studyhub-resources',
         resource_type: resourceType,
         public_id: `${timestamp}-${safeName}`,
+        access_mode: 'public', // Make files publicly accessible
+        type: 'upload', // Use 'upload' delivery type (not 'private' or 'authenticated')
         // Don't specify allowed_formats - let Cloudinary handle it
       }
     } catch (error) {
