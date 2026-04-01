@@ -153,7 +153,7 @@ function GoogleSignInButton({ label, onSuccess, onError }) {
         localStorage.setItem('studyhub-token', data.token)
         localStorage.setItem('studyhub-current-user', JSON.stringify(data.user))
         sessionStorage.setItem('studyhub-username', data.user.name)
-        window.location.href = window.location.origin + window.location.pathname
+        window.location.href = import.meta.env.BASE_URL || '/'
       } else {
         onError(data.error || 'Google sign-in failed.')
       }
@@ -453,7 +453,7 @@ function SignupForm({ onSwitch, onSuccess }) {
         localStorage.setItem('studyhub-current-user', JSON.stringify(data.user))
         sessionStorage.setItem('studyhub-username', data.user.name)
         // Reload to hydrate auth context
-        window.location.href = window.location.origin + '/'
+        window.location.href = import.meta.env.BASE_URL || '/'
       } else {
         setError(data.error || 'Invalid or expired OTP.')
       }
