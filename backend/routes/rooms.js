@@ -5,6 +5,8 @@ import User from '../models/User.js'
 import Notification from '../models/Notification.js'
 import StudySession from '../models/StudySession.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { trackRoomJoined, trackRoomCreated } from '../services/badgeTrackingService.js'
+import { calculateTotalStudyHours } from '../lib/studyTimeUtils.js'
 
 const router = express.Router()
 const ROOM_SESSION_RETENTION_DAYS = Math.max(1, Number(process.env.ROOM_SESSION_RETENTION_DAYS || 7))
@@ -117,6 +119,11 @@ router.post('/create', authMiddleware, async (req, res) => {
       $push: { createdRooms: room._id, joinedRooms: room._id } 
     })
 
+    // Track badge progress for room creation
+    trackRoomCreated(userId).catch(err => 
+      console.error('Badge tracking error:', err)
+    )
+
     // Handle invited members — look up by email and create notifications
     if (invitedMembers && invitedMembers.length > 0) {
       const invitedUsers = await User.find({ email: { $in: invitedMembers } })
@@ -155,6 +162,11 @@ router.post('/:id/join', authMiddleware, async (req, res) => {
       }
       await room.save()
       await User.findByIdAndUpdate(userId, { $addToSet: { joinedRooms: room._id } })
+      
+      // Track badge progress for joining room
+      trackRoomJoined(userId).catch(err => 
+        console.error('Badge tracking error:', err)
+      )
     }
     
     res.json({ ok: true, room })
@@ -179,6 +191,12 @@ router.post('/:id/end', authMiddleware, async (req, res) => {
         room.endedAt = new Date()
         room.status = 'completed'
         room.duration = Math.round((room.endedAt - room.createdAt) / 60000)
+        
+        // Track study hours for all participants who were in the room
+        const { trackRoomCompletion } = await import('../services/badgeTrackingService.js')
+        trackRoomCompletion(room._id, room.participants, room.duration, room.subject).catch(err =>
+          console.error('Room completion tracking error:', err)
+        )
       }
       await room.save()
       return res.json({ ok: true, room })
@@ -189,6 +207,12 @@ router.post('/:id/end', authMiddleware, async (req, res) => {
     room.status = 'completed'
     room.duration = Math.round((room.endedAt - room.createdAt) / 60000)
     await room.save()
+    
+    // Track study hours for all participants
+    const { trackRoomCompletion } = await import('../services/badgeTrackingService.js')
+    trackRoomCompletion(room._id, room.participants, room.duration, room.subject).catch(err =>
+      console.error('Room completion tracking error:', err)
+    )
     
     res.json({ ok: true, room })
   } catch (err) {
@@ -409,14 +433,8 @@ router.get('/user/stats', authMiddleware, async (req, res) => {
       })),
     ].sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor))
     
-    // Calculate total study time
-    const completedRooms = await Room.find({
-      participants: userId,
-      status: 'completed'
-    })
-    
-    const totalMinutes = completedRooms.reduce((sum, room) => sum + (room.duration || 0), 0)
-    const totalHours = Math.round(totalMinutes / 60 * 10) / 10
+    // Calculate total study time from all sources consistently
+    const totalHours = await calculateTotalStudyHours(userId)
     
     // Subject distribution from ALL rooms user participated in (not just completed)
     const allUserRooms = await Room.find({
@@ -434,19 +452,28 @@ router.get('/user/stats', authMiddleware, async (req, res) => {
       }
     })
     
+    // Get completed rooms count
+    const completedRooms = await Room.countDocuments({
+      participants: userId,
+      status: 'completed'
+    })
+    
     res.json({
       activeSessions,
       recentSessions: recentSessions.map(room => {
         const archiveExpiresAt = archiveByRoomId.get(String(room._id)) || null
+        const isCreator = String(room.createdBy?._id) === String(userId)
         return {
           ...room.toObject(),
           hasArchive: Boolean(archiveExpiresAt),
           archiveExpiresAt,
+          isCreator,
+          userRole: isCreator ? 'created' : 'joined',
         }
       }),
       upcomingSessions,
       totalHours,
-      totalSessions: completedRooms.length,
+      totalSessions: completedRooms,
       subjectDistribution: subjectMap
     })
   } catch (err) {

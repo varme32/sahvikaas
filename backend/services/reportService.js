@@ -10,6 +10,7 @@ import Room from '../models/Room.js'
 import AiUsageLog from '../models/AiUsageLog.js'
 import ActivityReport from '../models/ActivityReport.js'
 import { generateStudyInsights } from './aiInsightsService.js'
+import { calculateTotalStudyHours } from '../lib/studyTimeUtils.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -61,11 +62,14 @@ export async function buildUserReportPayload(userId, rangeDays = 30) {
     { $sort: { requests: -1 } },
   ])
 
+  // Calculate total study hours from all sources
+  const totalStudyHours = await calculateTotalStudyHours(uid, user)
+
   return {
     user: {
       name: user.name,
       email: user.email,
-      totalStudyHours: user.totalStudyHours,
+      totalStudyHours,
       totalXP: user.totalXP,
       currentStreak: user.currentStreak,
       longestStreak: user.longestStreak,

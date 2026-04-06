@@ -230,6 +230,12 @@ router.post('/login', async (req, res) => {
     user.lastActiveAt = new Date()
     await user.save()
 
+    // Track login as study activity for streak calculation
+    const { trackLoginActivity } = await import('../services/badgeTrackingService.js')
+    trackLoginActivity(user._id).catch(err => 
+      console.error('Failed to track login activity:', err)
+    )
+
     const token = generateToken(user._id)
     const safeUser = user.toSafeObject()
 
@@ -394,6 +400,12 @@ router.post('/google', async (req, res) => {
 
     user.lastActiveAt = new Date()
     await user.save()
+
+    // Track login as study activity for streak calculation
+    const { trackLoginActivity } = await import('../services/badgeTrackingService.js')
+    trackLoginActivity(user._id).catch(err => 
+      console.error('Failed to track login activity:', err)
+    )
 
     const token = generateToken(user._id)
     const safeUser = user.toSafeObject()

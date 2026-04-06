@@ -4,6 +4,7 @@ import StudySession from '../models/StudySession.js'
 import Exam from '../models/Exam.js'
 import Event from '../models/Event.js'
 import Reminder from '../models/Reminder.js'
+import { trackSessionCompleted } from '../services/badgeTrackingService.js'
 
 const router = express.Router()
 
@@ -45,6 +46,14 @@ router.put('/sessions/:id', authMiddleware, async (req, res) => {
       { new: true }
     )
     if (!session) return res.status(404).json({ error: 'Session not found.' })
+    
+    // Track badge progress if session is marked as completed
+    if (req.body.status === 'completed' && session.status === 'completed') {
+      trackSessionCompleted(req.user._id, session).catch(err => 
+        console.error('Badge tracking error:', err)
+      )
+    }
+    
     res.json({ ok: true, session })
   } catch (err) {
     res.status(500).json({ error: 'Failed to update session.' })

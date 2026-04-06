@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import emailjs from '@emailjs/browser'
 import Modal from '../../components/ui/Modal'
 import { useAuth } from '../../lib/auth'
 import { createRoom } from '../../lib/roomApiV2'
@@ -12,7 +13,6 @@ export default function CreateRoomPage() {
     subject: '',
     audio: true,
     video: true,
-    scheduledFor: '',
   })
   const [inviteEmail, setInviteEmail] = useState('')
   const [invitedMembers, setInvitedMembers] = useState([])
@@ -34,6 +34,36 @@ export default function CreateRoomPage() {
     setInvitedMembers(prev => prev.filter(e => e !== email))
   }
 
+  const sendInviteEmails = async (roomId, roomName) => {
+    if (invitedMembers.length === 0) return
+
+    const basePath = import.meta.env.BASE_URL?.replace(/\/$/, '') || ''
+    const roomUrl = `${window.location.origin}${basePath}/#/room/${roomId}`
+
+    const emailPromises = invitedMembers.map(email => {
+      const templateParams = {
+        to_email: email,
+        room_name: roomName,
+        room_link: roomUrl,
+        from_name: user?.name || 'StudyHub User',
+        subject: formData.subject,
+      }
+
+      return emailjs.send(
+        import.meta.env.VITE_EMAILJS_SERVICE_ID || 'service_a9x197y',
+        import.meta.env.VITE_EMAILJS_TEMPLATE_ID || 'template_d68fmd7',
+        templateParams,
+        import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'poqXRLHL27lAtbcTb'
+      )
+    })
+
+    try {
+      await Promise.all(emailPromises)
+    } catch (error) {
+      console.error('Failed to send some invitation emails:', error)
+    }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!formData.name.trim() || !formData.subject.trim()) {
@@ -48,9 +78,14 @@ export default function CreateRoomPage() {
         privacy: 'public',
         audio: formData.audio,
         video: formData.video,
-        scheduledFor: formData.scheduledFor || undefined,
         invitedMembers: invitedMembers.length > 0 ? invitedMembers : undefined,
       })
+      
+      // Send invitation emails
+      if (invitedMembers.length > 0) {
+        await sendInviteEmails(result.room._id, formData.name)
+      }
+      
       setLoading(false)
       setCreatedRoomId(result.room._id)
       setSuccessModal(true)
@@ -175,29 +210,6 @@ export default function CreateRoomPage() {
               </div>
             </div>
 
-            {/* Schedule Section */}
-            <div className="space-y-6">
-              <div className="pb-3 border-b-2 border-[#F2CF7E]">
-                <h2 className="text-lg font-bold text-gray-900">Schedule</h2>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">
-                  Schedule For <span className="text-gray-500 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="datetime-local"
-                  value={formData.scheduledFor}
-                  onChange={e => setFormData(prev => ({ ...prev, scheduledFor: e.target.value }))}
-                  className="w-full h-12 px-4 rounded-lg border-2 border-gray-200 text-sm text-gray-900 focus:outline-none focus:border-[#F2CF7E] focus:ring-0 transition-colors"
-                />
-                <p className="text-xs text-gray-500 mt-2 flex items-center gap-1.5">
-                  <i className="ri-information-line text-sm" />
-                  Leave empty to start the room immediately
-                </p>
-              </div>
-            </div>
-
             {/* Invite Members Section */}
             <div className="space-y-6">
               <div className="pb-3 border-b-2 border-[#F2CF7E]">
@@ -208,6 +220,10 @@ export default function CreateRoomPage() {
                 <label className="block text-sm font-semibold text-gray-900 mb-2">
                   Email Addresses <span className="text-gray-500 font-normal">(optional)</span>
                 </label>
+                <p className="text-xs text-gray-600 mb-3 flex items-center gap-1.5">
+                  <i className="ri-mail-send-line text-[#F2CF7E]" />
+                  Room link will be automatically sent to these email addresses
+                </p>
                 <div className="flex gap-2">
                   <input
                     type="email"
@@ -295,7 +311,13 @@ export default function CreateRoomPage() {
             <i className="ri-check-line text-4xl text-[#F2CF7E]" />
           </div>
           <h3 className="text-2xl font-bold text-gray-900 mb-2">Room Created Successfully!</h3>
-          <p className="text-sm text-gray-600 mb-6">Share this link with others to join your study session.</p>
+          <p className="text-sm text-gray-600 mb-2">Share this link with others to join your study session.</p>
+          {invitedMembers.length > 0 && (
+            <p className="text-xs text-[#F2CF7E] font-semibold mb-4 flex items-center justify-center gap-1.5">
+              <i className="ri-mail-check-line" />
+              Invitation emails sent to {invitedMembers.length} member{invitedMembers.length > 1 ? 's' : ''}
+            </p>
+          )}
           <div className="flex gap-2 mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <input
               type="text"

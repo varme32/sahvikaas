@@ -69,6 +69,20 @@ function StatCard({ icon, label, value, sub, color = '#6366f1' }) {
   )
 }
 
+function formatStudyDuration(hours) {
+  const h = Number(hours) || 0
+  if (h === 0) return '0m'
+  
+  const totalMinutes = Math.round(h * 60)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  
+  const hoursValue = Math.floor(totalMinutes / 60)
+  const minutesValue = totalMinutes % 60
+  
+  if (minutesValue === 0) return `${hoursValue}h`
+  return `${hoursValue}h ${minutesValue}m`
+}
+
 /* ─── Dashboard ─── */
 export function AdminDashboardView() {
   const [data, setData] = useState(null)
@@ -109,7 +123,7 @@ export function AdminDashboardView() {
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        <StatCard icon="ri-user-line" label="Total users" value={stats.totalUsers} color="#6366f1" sub={`DAU ${stats.dau} · WAU ${stats.wau}`} />
+        <StatCard icon="ri-user-line" label="Total users" value={stats.totalUsers} color="#6366f1" />
         <StatCard icon="ri-time-line" label="Study hours (all)" value={stats.totalStudyHours} color="#14b8a6" />
         <StatCard icon="ri-live-line" label="Active rooms" value={stats.activeRooms} color="#22c55e" sub={`${stats.totalRooms} total`} />
         <StatCard icon="ri-robot-line" label="AI requests" value={stats.aiRequests} color="#8b5cf6" sub={`${stats.totalResources} resources`} />
@@ -211,30 +225,6 @@ export function AdminUsersView() {
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
-  const formatStudyDuration = (hours, minutesFallback) => {
-    const fromHours = Number(hours)
-    const fromMinutes = Number(minutesFallback)
-
-    const hasPositiveHours = Number.isFinite(fromHours) && fromHours > 0
-    const hasPositiveMinutes = Number.isFinite(fromMinutes) && fromMinutes > 0
-
-    let totalMinutes = 0
-    if (hasPositiveHours) {
-      totalMinutes = Math.round(fromHours * 60)
-    } else if (hasPositiveMinutes) {
-      totalMinutes = Math.round(fromMinutes)
-    }
-
-    if (totalMinutes <= 0) return '0m'
-
-    if (totalMinutes < 60) {
-      return `${totalMinutes}m`
-    }
-
-    const hoursValue = totalMinutes / 60
-    return `${(Math.round(hoursValue * 10) / 10).toFixed(1)}h`
-  }
-
   const fetchUsers = useCallback(async () => {
     setLoading(true)
     try {
@@ -292,7 +282,7 @@ export function AdminUsersView() {
                   <p className="text-xs text-gray-400 truncate max-w-[180px]">{u.email}</p>
                   {u.banned && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 rounded">Banned</span>}
                 </td>
-                <td className="px-4 py-3 hidden md:table-cell">{formatStudyDuration(u.studyHours ?? u.totalStudyHours, u.studyMinutes)}</td>
+                <td className="px-4 py-3 hidden md:table-cell">{formatStudyDuration(u.studyHours)}</td>
                 <td className="px-4 py-3">{u.totalXP ?? 0}</td>
                 <td className="px-4 py-3 hidden sm:table-cell">{u.currentStreak ?? 0}</td>
                 <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-500">
@@ -342,13 +332,22 @@ export function AdminUserDetailView() {
   useEffect(() => { load() }, [load])
 
   if (loading) {
-    return <div className="py-20 text-center text-gray-400">Loading user…</div>
+    return (
+      <div className="flex justify-center py-20">
+        <i className="ri-loader-4-line animate-spin text-2xl text-[#F2CF7E]" />
+      </div>
+    )
   }
   if (!data?.user) {
-    return <Card>User not found.</Card>
+    return (
+      <Card>
+        <p className="text-red-600">User not found or failed to load.</p>
+      </Card>
+    )
   }
 
   const act = data.activity || {}
+  const user = data.user || {}
   const chartData = (act.studyActivityDaily || []).map(d => ({ name: d.date?.slice(5), hours: d.hours }))
 
   const doBan = async () => {
@@ -412,49 +411,83 @@ export function AdminUserDetailView() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon="ri-time-line" label="Study hours" value={act.user?.totalStudyHours} color="#14b8a6" />
-        <StatCard icon="ri-trophy-line" label="XP" value={act.user?.totalXP} color="#6366f1" />
-        <StatCard icon="ri-fire-line" label="Streak" value={act.user?.currentStreak} color="#f97316" />
-        <StatCard icon="ri-group-line" label="Rooms J/C" value={`${act.roomsJoined ?? 0} / ${act.roomsCreated ?? 0}`} color="#8b5cf6" />
+        <StatCard 
+          icon="ri-time-line" 
+          label="Study hours" 
+          value={formatStudyDuration(act.user?.totalStudyHours ?? user.totalStudyHours ?? 0)} 
+          color="#14b8a6" 
+        />
+        <StatCard 
+          icon="ri-trophy-line" 
+          label="XP" 
+          value={act.user?.totalXP ?? user.totalXP ?? 0} 
+          color="#6366f1" 
+        />
+        <StatCard 
+          icon="ri-fire-line" 
+          label="Streak" 
+          value={act.user?.currentStreak ?? user.currentStreak ?? 0} 
+          color="#f97316" 
+        />
+        <StatCard 
+          icon="ri-group-line" 
+          label="Rooms J/C" 
+          value={`${act.roomsJoined ?? 0} / ${act.roomsCreated ?? 0}`} 
+          color="#8b5cf6" 
+        />
       </div>
 
       <Card>
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Daily study hours (last 30d)</h3>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="hours" fill="#F2CF7E" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {chartData.length > 0 ? (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Bar dataKey="hours" fill="#F2CF7E" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-64 flex items-center justify-center">
+            <p className="text-sm text-gray-400">No study activity recorded in the last 30 days.</p>
+          </div>
+        )}
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <h3 className="text-sm font-semibold mb-2">Subject distribution</h3>
-          <ul className="text-sm space-y-1">
-            {(act.subjectDistribution || []).map(s => (
-              <li key={s.name} className="flex justify-between text-gray-600">
-                <span>{s.name}</span>
-                <span>{s.percent}%</span>
-              </li>
-            ))}
-          </ul>
+          {(act.subjectDistribution || []).length > 0 ? (
+            <ul className="text-sm space-y-1">
+              {act.subjectDistribution.map(s => (
+                <li key={s.name} className="flex justify-between text-gray-600">
+                  <span>{s.name}</span>
+                  <span>{s.percent}%</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400">No study sessions recorded yet.</p>
+          )}
         </Card>
         <Card>
           <h3 className="text-sm font-semibold mb-2">AI usage (period)</h3>
-          <ul className="text-sm space-y-1 max-h-48 overflow-y-auto">
-            {(act.aiUsageByFeature || []).map(a => (
-              <li key={a.feature} className="flex justify-between text-gray-600">
-                <span className="truncate max-w-[140px]">{a.feature}</span>
-                <span>{a.requests} req</span>
-              </li>
-            ))}
-          </ul>
+          {(act.aiUsageByFeature || []).length > 0 ? (
+            <ul className="text-sm space-y-1 max-h-48 overflow-y-auto">
+              {act.aiUsageByFeature.map(a => (
+                <li key={a.feature} className="flex justify-between text-gray-600">
+                  <span className="truncate max-w-[140px]">{a.feature}</span>
+                  <span>{a.requests} req</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-400">No AI usage in the last 30 days.</p>
+          )}
         </Card>
       </div>
     </div>
@@ -1039,7 +1072,7 @@ export function AdminReportsView() {
           </Card>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard icon="ri-time-line" label="Study hours (30d)" value={userDetail.activity?.studyHoursLast30d ?? 0} color="#14b8a6" />
+            <StatCard icon="ri-time-line" label="Study hours (30d)" value={formatStudyDuration(userDetail.activity?.studyHoursLast30d ?? 0)} color="#14b8a6" />
             <StatCard icon="ri-trophy-line" label="Total XP" value={userDetail.user?.totalXP ?? 0} color="#f59e0b" />
             <StatCard icon="ri-calendar-check-line" label="Rooms created" value={userDetail.activity?.roomsCreated ?? 0} color="#10b981" />
             <StatCard icon="ri-team-line" label="Rooms joined" value={userDetail.activity?.roomsJoined ?? 0} color="#6366f1" />

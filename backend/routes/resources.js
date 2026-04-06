@@ -3,6 +3,7 @@ import multer from 'multer'
 import path from 'path'
 import { authMiddleware } from '../middleware/auth.js'
 import Resource, { Folder } from '../models/Resource.js'
+import { trackResourceUploaded } from '../services/badgeTrackingService.js'
 
 const router = express.Router()
 
@@ -103,6 +104,12 @@ router.post('/', authMiddleware, async (req, res) => {
       contributorName: req.user.name,
     })
     await resource.save()
+    
+    // Track badge progress for resource upload
+    trackResourceUploaded(req.user._id, type).catch(err => 
+      console.error('Badge tracking error:', err)
+    )
+    
     res.status(201).json({ ok: true, resource })
   } catch (err) {
     res.status(500).json({ error: 'Failed to create resource.' })

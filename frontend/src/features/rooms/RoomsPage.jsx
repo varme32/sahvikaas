@@ -54,6 +54,8 @@ export default function RoomsPage() {
           hasArchive: Boolean(r.hasArchive),
           archiveExpiresAt: r.archiveExpiresAt || null,
           isUserRoom: false,
+          userRole: r.userRole || null, // 'created' or 'joined'
+          isCreator: r.isCreator || false,
         }))
         
         // Map upcoming sessions
@@ -246,6 +248,14 @@ export default function RoomsPage() {
                 <i className="ri-user-star-line" />
                 <span>Host: {room.host}</span>
               </div>
+              {activeTab === 'recent' && room.userRole && (
+                <div className="flex items-center gap-2 text-sm">
+                  <i className={room.userRole === 'created' ? 'ri-star-fill text-[#F2CF7E]' : 'ri-user-add-line text-blue-500'} />
+                  <span className={room.userRole === 'created' ? 'text-[#F2CF7E] font-medium' : 'text-blue-600 font-medium'}>
+                    {room.userRole === 'created' ? 'You created this room' : 'You joined this room'}
+                  </span>
+                </div>
+              )}
             </div>
             {activeTab === 'active' && (
               <button

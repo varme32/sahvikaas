@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getBadges, getLeaderboard, getStudyActivity, getAchievementStats } from '../../lib/api'
+import { getBadges, getLeaderboard, getStudyActivity, getAchievementStats, recalculateBadges } from '../../lib/api'
 
 // ─── Circular Progress Component ───
 function CircularProgress({ percentage, size = 64, strokeWidth = 5 }) {
@@ -121,28 +121,24 @@ function LeaderboardTab({ leaderboardData }) {
       <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden hover:shadow-md hover:border-[#F2CF7E] transition-all">
         <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-[#F2CF7E]/10 border-b-2 border-[#F2CF7E]/30 text-xs font-bold text-gray-900 uppercase">
           <div className="col-span-1">#</div>
-          <div className="col-span-5">Student</div>
-          <div className="col-span-2 text-center">Dept</div>
+          <div className="col-span-6">Student</div>
           <div className="col-span-2 text-center">Streak</div>
-          <div className="col-span-2 text-right">XP</div>
+          <div className="col-span-3 text-right">XP</div>
         </div>
         {leaderboardData.slice(3).map(user => (
           <div key={user.rank} className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors items-center">
             <div className="col-span-1 text-sm font-semibold text-gray-400">{user.rank}</div>
-            <div className="col-span-5 flex items-center gap-2 min-w-0">
+            <div className="col-span-6 flex items-center gap-2 min-w-0">
               <div className="w-8 h-8 rounded-full bg-[#F2CF7E]/20 flex items-center justify-center text-xs font-bold text-black shrink-0">
                 {user.avatar}
               </div>
               <span className="text-sm font-medium text-black truncate">{user.name}</span>
             </div>
-            <div className="col-span-2 text-center">
-              <span className="text-xs px-2 py-0.5 bg-gray-100 rounded-full text-gray-600">{user.dept}</span>
-            </div>
             <div className="col-span-2 text-center flex items-center justify-center gap-1">
               <i className="ri-fire-fill text-orange-500 text-xs" />
               <span className="text-xs font-medium text-gray-700">{user.streak}d</span>
             </div>
-            <div className="col-span-2 text-right text-sm font-bold text-black">{user.xp.toLocaleString()}</div>
+            <div className="col-span-3 text-right text-sm font-bold text-black">{user.xp.toLocaleString()}</div>
           </div>
         ))}
       </div>
@@ -151,7 +147,7 @@ function LeaderboardTab({ leaderboardData }) {
 }
 
 // ─── Streaks Tab ───
-function StreaksTab({ streakData }) {
+function StreaksTab({ streakData, totalStudyHours }) {
   // Calculate stats
   const currentStreak = useMemo(() => {
     let streak = 0
@@ -171,7 +167,6 @@ function StreaksTab({ streakData }) {
     return max
   }, [streakData])
 
-  const totalHours = useMemo(() => streakData.reduce((s, d) => s + d.hours, 0), [streakData])
   const activeDays = useMemo(() => streakData.filter(d => d.hours > 0).length, [streakData])
 
   function getHeatColor(hours) {
@@ -198,8 +193,8 @@ function StreaksTab({ streakData }) {
         {[
           { label: 'Current Streak', value: `${currentStreak} days`, icon: 'ri-fire-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
           { label: 'Longest Streak', value: `${longestStreak} days`, icon: 'ri-trophy-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
-          { label: 'Total Hours', value: `${totalHours} hrs`, icon: 'ri-time-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
-          { label: 'Active Days', value: `${activeDays}/${streakData.length}`, icon: 'ri-calendar-check-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Total Hours', value: `${totalStudyHours.toFixed(2)} hrs`, icon: 'ri-time-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
+          { label: 'Active Days', value: `${activeDays} days`, icon: 'ri-calendar-check-fill', color: 'text-black', bg: 'bg-[#F2CF7E]' },
         ].map(stat => (
           <div key={stat.label} className="bg-white rounded-xl border-2 border-gray-200 p-4 hover:shadow-md hover:border-[#F2CF7E] transition-all">
             <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center mb-2 shadow-sm`}>
@@ -277,31 +272,43 @@ const tabs = [
 export default function AchievementsPage() {
   const [activeTab, setActiveTab] = useState('badges')
   const [loading, setLoading] = useState(true)
+  const [recalculating, setRecalculating] = useState(false)
   const [badges, setBadges] = useState([])
   const [leaderboardData, setLeaderboardData] = useState([])
   const [streakData, setStreakData] = useState([])
-  const [stats, setStats] = useState({ totalXP: 0, currentStreak: 0, longestStreak: 0, rank: '—' })
+  const [stats, setStats] = useState({ totalXP: 0, currentStreak: 0, longestStreak: 0, rank: '—', totalStudyHours: 0 })
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [badgeRes, lbRes, actRes, statRes] = await Promise.all([
+        getBadges().catch(() => null),
+        getLeaderboard().catch(() => null),
+        getStudyActivity().catch(() => null),
+        getAchievementStats().catch(() => null),
+      ])
+      if (badgeRes?.ok) setBadges(badgeRes.badges || [])
+      if (lbRes?.ok) setLeaderboardData(lbRes.leaderboard || [])
+      if (actRes?.ok) setStreakData(actRes.activity || [])
+      if (statRes?.ok) setStats(statRes.stats || stats)
+    } catch { /* ignore */ }
+    setLoading(false)
+  }
+
+  const handleRecalculate = async () => {
+    setRecalculating(true)
+    try {
+      await recalculateBadges()
+      await loadData()
+    } catch (err) {
+      console.error('Failed to recalculate badges:', err)
+    }
+    setRecalculating(false)
+  }
 
   useEffect(() => {
     let mounted = true
-    const load = async () => {
-      setLoading(true)
-      try {
-        const [badgeRes, lbRes, actRes, statRes] = await Promise.all([
-          getBadges().catch(() => null),
-          getLeaderboard().catch(() => null),
-          getStudyActivity().catch(() => null),
-          getAchievementStats().catch(() => null),
-        ])
-        if (!mounted) return
-        if (badgeRes?.ok) setBadges(badgeRes.badges || [])
-        if (lbRes?.ok) setLeaderboardData(lbRes.leaderboard || [])
-        if (actRes?.ok) setStreakData(actRes.activity || [])
-        if (statRes?.ok) setStats(statRes.stats || stats)
-      } catch { /* ignore */ }
-      if (mounted) setLoading(false)
-    }
-    load()
+    loadData()
     return () => { mounted = false }
   }, [])
 
@@ -322,9 +329,19 @@ export default function AchievementsPage() {
   return (
     <div className="space-y-5 sm:space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Achievements</h1>
-        <p className="text-sm text-gray-500 mt-1">Track your progress, earn badges, and climb the leaderboard</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Achievements</h1>
+          <p className="text-sm text-gray-500 mt-1">Track your progress, earn badges, and climb the leaderboard</p>
+        </div>
+        <button
+          onClick={handleRecalculate}
+          disabled={recalculating}
+          className="px-4 py-2 bg-[#F2CF7E] text-black rounded-lg text-sm font-medium hover:bg-[#e0bd6c] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          <i className={`ri-refresh-line ${recalculating ? 'animate-spin' : ''}`} />
+          {recalculating ? 'Updating...' : 'Refresh Badges'}
+        </button>
       </div>
 
       {/* Stats Overview */}
@@ -379,7 +396,7 @@ export default function AchievementsPage() {
           )
         )}
         {activeTab === 'leaderboard' && <LeaderboardTab leaderboardData={leaderboardData} />}
-        {activeTab === 'streaks' && <StreaksTab streakData={streakData} />}
+        {activeTab === 'streaks' && <StreaksTab streakData={streakData} totalStudyHours={stats.totalStudyHours || 0} />}
         {activeTab === 'milestones' && <MilestonesTab />}
       </div>
     </div>

@@ -15,6 +15,7 @@ import BadgeProgress from '../models/BadgeProgress.js'
 import ActivityReport from '../models/ActivityReport.js'
 import { adminAuthMiddleware } from '../middleware/adminAuth.js'
 import { buildUserReportPayload, createUserReport } from '../services/reportService.js'
+import { calculateStudyHoursForUsers, formatStudyHours } from '../lib/studyTimeUtils.js'
 
 const router = express.Router()
 
@@ -51,7 +52,41 @@ router.get('/dashboard', async (req, res) => {
     const totalStudyHoursAgg = await StudyActivity.aggregate([
       { $group: { _id: null, t: { $sum: '$hours' } } },
     ])
-    const totalStudyHours = Math.round((totalStudyHoursAgg[0]?.t || 0) * 10) / 10
+    const studyActivityHours = Math.round((totalStudyHoursAgg[0]?.t || 0) * 10) / 10
+    
+    // Also aggregate from User.totalStudyHours as fallback
+    const userStudyHoursAgg = await User.aggregate([
+      { $group: { _id: null, t: { $sum: '$totalStudyHours' } } },
+    ])
+    const userProfileHours = Math.round((userStudyHoursAgg[0]?.t || 0) * 10) / 10
+    
+    // Also calculate from completed rooms
+    const completedRooms = await Room.find({ status: 'completed' })
+      .select('duration createdAt endedAt participants createdBy')
+      .lean()
+    
+    let roomHoursTotal = 0
+    for (const room of completedRooms) {
+      const storedMinutes = Math.max(0, Number(room.duration) || 0)
+      const derivedMinutes = room.endedAt && room.createdAt
+        ? Math.max(0, Math.round((new Date(room.endedAt) - new Date(room.createdAt)) / 60000))
+        : 0
+      const minutes = Math.max(storedMinutes, derivedMinutes)
+      if (minutes > 0) {
+        // Count unique participants
+        const participants = new Set()
+        if (room.createdBy) participants.add(room.createdBy.toString())
+        if (Array.isArray(room.participants)) {
+          room.participants.forEach(p => { if (p) participants.add(p.toString()) })
+        }
+        // Each participant gets the full room duration
+        roomHoursTotal += (minutes / 60) * participants.size
+      }
+    }
+    roomHoursTotal = Math.round(roomHoursTotal * 10) / 10
+    
+    // Use the maximum of all three sources
+    const totalStudyHours = Math.max(studyActivityHours, userProfileHours, roomHoursTotal)
     const aiRequests = await AiUsageLog.countDocuments()
 
     const studyHoursByDay = await StudyActivity.aggregate([
@@ -258,114 +293,18 @@ router.get('/users', async (req, res) => {
 
     const total = await User.countDocuments(filter)
     const users = await User.find(filter)
-      .select('-password')
+      .select('-password -resetPasswordToken -emailVerificationOtp')
       .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit)
       .lean()
 
-    const userIds = users.map(u => u._id).filter(Boolean)
-    const userIdStrings = userIds.map(id => id.toString())
-
-    const studyHoursAgg = userIdStrings.length
-      ? await StudyActivity.aggregate([
-        {
-          $match: {
-            $expr: { $in: [{ $toString: '$userId' }, userIdStrings] },
-          },
-        },
-        {
-          $group: {
-            _id: { $toString: '$userId' },
-            hours: {
-              $sum: {
-                $convert: { input: '$hours', to: 'double', onError: 0, onNull: 0 },
-              },
-            },
-          },
-        },
-      ])
-      : []
-
-    const completedSessions = userIdStrings.length
-      ? await StudySession.aggregate([
-        {
-          $match: {
-            $expr: {
-              $and: [
-                { $eq: ['$status', 'completed'] },
-                { $in: [{ $toString: '$userId' }, userIdStrings] },
-              ],
-            },
-          },
-        },
-        {
-          $project: {
-            _id: 0,
-            userId: { $toString: '$userId' },
-            duration: '$duration',
-          },
-        },
-      ])
-      : []
-
-    const completedRooms = userIds.length
-      ? await Room.find({
-        status: 'completed',
-        $or: [
-          { createdBy: { $in: userIds } },
-          { participants: { $in: userIds } },
-        ],
-      })
-        .select('createdBy participants duration createdAt endedAt')
-        .lean()
-      : []
-
-    const activityHourMap = Object.fromEntries(
-      studyHoursAgg.map(row => [row._id, Math.round((Number(row.hours) || 0) * 100) / 100]),
-    )
-
-    const sessionHourMap = {}
-    for (const row of completedSessions) {
-      const key = row.userId
-      sessionHourMap[key] = (sessionHourMap[key] || 0) + parseDurationToHours(row.duration)
-    }
-    Object.keys(sessionHourMap).forEach((k) => {
-      sessionHourMap[k] = Math.round(sessionHourMap[k] * 100) / 100
-    })
-
-    const roomMinuteMap = {}
-    for (const room of completedRooms) {
-      const storedMinutes = Math.max(0, Number(room.duration) || 0)
-      const derivedMinutes = room.endedAt && room.createdAt
-        ? Math.max(0, Math.round((new Date(room.endedAt) - new Date(room.createdAt)) / 60000))
-        : 0
-      const minutes = Math.max(storedMinutes, derivedMinutes)
-      if (!minutes) continue
-      const members = new Set()
-      if (room.createdBy) members.add(room.createdBy.toString())
-      if (Array.isArray(room.participants)) {
-        room.participants.forEach((pid) => {
-          if (pid) members.add(pid.toString())
-        })
-      }
-      members.forEach((uid) => {
-        roomMinuteMap[uid] = (roomMinuteMap[uid] || 0) + minutes
-      })
-    }
-    Object.keys(roomMinuteMap).forEach((k) => {
-      roomMinuteMap[k] = Math.round(roomMinuteMap[k])
-    })
+    // Calculate study hours consistently for all users
+    const studyHoursMap = await calculateStudyHoursForUsers(users)
 
     const usersWithStudy = users.map((u) => {
-      const fromProfile = Number(u.totalStudyHours) || 0
-      const fromActivity = activityHourMap[u._id.toString()] || 0
-      const fromSessions = sessionHourMap[u._id.toString()] || 0
-      const studyHours = Math.round(Math.max(fromProfile, fromActivity, fromSessions) * 100) / 100
-      const fromHoursMinutes = Math.round(studyHours * 60)
-      const fromRoomsMinutes = roomMinuteMap[u._id.toString()] || 0
-      const studyMinutes = Math.max(fromHoursMinutes, fromRoomsMinutes)
-      return { ...u, studyHours, studyMinutes }
+      const studyHours = studyHoursMap.get(u._id.toString()) || 0
+      return { ...u, studyHours }
     })
 
     res.json({ ok: true, users: usersWithStudy, total, page, pages: Math.ceil(total / limit) })
@@ -528,7 +467,15 @@ router.put('/rooms/:id/end', async (req, res) => {
     room.ended = true
     room.status = 'completed'
     room.endedAt = new Date()
+    room.duration = Math.round((room.endedAt - room.createdAt) / 60000)
     await room.save()
+    
+    // Track study hours for all participants
+    const { trackRoomCompletion } = await import('../services/badgeTrackingService.js')
+    trackRoomCompletion(room._id, room.participants, room.duration, room.subject).catch(err =>
+      console.error('Room completion tracking error:', err)
+    )
+    
     res.json({ ok: true, message: 'Room ended' })
   } catch (err) {
     console.error('Admin end room error:', err)

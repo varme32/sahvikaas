@@ -1086,6 +1086,8 @@ io.on('connection', (socket) => {
 
     // Update MongoDB to mark the room as ended
     let endedAt = new Date()
+    let participantIds = []
+    let duration = 0
     try {
       const dbRoom = await Room.findById(meetingId)
       if (dbRoom && !dbRoom.ended) {
@@ -1095,7 +1097,15 @@ io.on('connection', (socket) => {
         dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
         await dbRoom.save()
         endedAt = dbRoom.endedAt
+        participantIds = dbRoom.participants || []
+        duration = dbRoom.duration
         console.log(`✅ Room ${meetingId} marked as ended in MongoDB via socket`)
+        
+        // Track study hours for all participants
+        const { trackRoomCompletion } = await import('./services/badgeTrackingService.js')
+        trackRoomCompletion(meetingId, participantIds, duration).catch(err =>
+          console.error('Room completion tracking error:', err)
+        )
       } else if (dbRoom?.endedAt) {
         endedAt = dbRoom.endedAt
       }
@@ -1695,6 +1705,8 @@ io.on('connection', (socket) => {
           if (currentRoom.participants.size === 0 && !currentRoom.ended) {
             currentRoom.ended = true
             let endedAt = new Date()
+            let participantIds = []
+            let duration = 0
             try {
               const dbRoom = await Room.findById(meetingId)
               if (dbRoom && !dbRoom.ended) {
@@ -1704,7 +1716,15 @@ io.on('connection', (socket) => {
                 dbRoom.duration = Math.round((dbRoom.endedAt - dbRoom.createdAt) / 60000)
                 await dbRoom.save()
                 endedAt = dbRoom.endedAt
+                participantIds = dbRoom.participants || []
+                duration = dbRoom.duration
                 console.log(`✅ Room ${meetingId} marked as ended in MongoDB (empty for 2 min)`)
+                
+                // Track study hours for all participants
+                const { trackRoomCompletion } = await import('./services/badgeTrackingService.js')
+                trackRoomCompletion(meetingId, participantIds, duration).catch(err =>
+                  console.error('Room completion tracking error:', err)
+                )
               } else if (dbRoom?.endedAt) {
                 endedAt = dbRoom.endedAt
               }

@@ -19,14 +19,16 @@ export default function DashboardPage() {
   const [subjectData, setSubjectData] = useState([])
   const [totalHours, setTotalHours] = useState(0)
   const [totalSessions, setTotalSessions] = useState(0)
+  const [studyProgressPeriod, setStudyProgressPeriod] = useState('week') // 'week' or 'month'
 
+  // Load initial dashboard data (runs once on mount)
   useEffect(() => {
     let mounted = true
     const loadData = async () => {
       setLoading(true)
       try {
         const [dashData, roomStats] = await Promise.all([
-          getDashboardSummary().catch(() => null),
+          getDashboardSummary(studyProgressPeriod).catch(() => null),
           getUserRoomStats().catch(() => null),
         ])
 
@@ -45,6 +47,8 @@ export default function DashboardPage() {
             name: r.name,
             duration: r.duration ? `${Math.round(r.duration)} min` : 'N/A',
             time: r.endedAt ? new Date(r.endedAt).toLocaleString() : 'Recently',
+            userRole: r.userRole || null,
+            isCreator: r.isCreator || false,
           })))
           
           setUpcomingSessions((roomStats.upcomingSessions || []).slice(0, 5).map(r => ({
@@ -85,6 +89,27 @@ export default function DashboardPage() {
     loadData()
     return () => { mounted = false }
   }, [])
+
+  // Load study progress data when period changes (without reloading entire page)
+  useEffect(() => {
+    let mounted = true
+    const loadStudyProgress = async () => {
+      try {
+        const dashData = await getDashboardSummary(studyProgressPeriod).catch(() => null)
+        if (!mounted) return
+        if (dashData?.ok) {
+          setStudyProgressData(dashData.studyProgress || [])
+        }
+      } catch (err) {
+        console.error('Study progress load error:', err)
+      }
+    }
+    // Only load if not initial mount (initial mount is handled by first useEffect)
+    if (!loading) {
+      loadStudyProgress()
+    }
+    return () => { mounted = false }
+  }, [studyProgressPeriod, loading])
 
   if (loading) {
     return (
@@ -222,11 +247,18 @@ export default function DashboardPage() {
             ) : recentSessions.map((session, i) => (
               <div key={i} className="flex items-center gap-3 p-4 bg-[#eeeeee] rounded-lg border border-gray-100">
                 <div className="w-10 h-10 rounded-lg bg-[#F2CF7E]/10 flex items-center justify-center">
-                  <i className="ri-video-line text-xl text-[#F2CF7E]" />
+                  <i className={`text-xl ${session.userRole === 'created' ? 'ri-star-fill text-[#F2CF7E]' : 'ri-video-line text-blue-500'}`} />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-black">{session.name}</p>
-                  <p className="text-xs text-gray-600 mt-0.5">{session.duration} • {session.time}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-xs text-gray-600">{session.duration} • {session.time}</p>
+                    {session.userRole && (
+                      <span className={`text-xs font-medium ${session.userRole === 'created' ? 'text-[#F2CF7E]' : 'text-blue-600'}`}>
+                        • {session.userRole === 'created' ? 'Created' : 'Joined'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -269,8 +301,26 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-5">
             <h3 className="font-semibold text-black">Study Progress</h3>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              <button className="px-3 py-1.5 text-xs font-medium rounded-md bg-[#F2CF7E] text-black">Week</button>
-              <button className="px-3 py-1.5 text-xs font-medium rounded-md text-gray-600 hover:text-black transition-colors">Month</button>
+              <button 
+                onClick={() => setStudyProgressPeriod('week')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  studyProgressPeriod === 'week' 
+                    ? 'bg-[#F2CF7E] text-black' 
+                    : 'text-gray-600 hover:text-black'
+                }`}
+              >
+                Week
+              </button>
+              <button 
+                onClick={() => setStudyProgressPeriod('month')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  studyProgressPeriod === 'month' 
+                    ? 'bg-[#F2CF7E] text-black' 
+                    : 'text-gray-600 hover:text-black'
+                }`}
+              >
+                Month
+              </button>
             </div>
           </div>
           {studyProgressData.length === 0 ? (

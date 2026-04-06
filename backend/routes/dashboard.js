@@ -11,6 +11,7 @@ const router = express.Router()
 router.get('/summary', authMiddleware, async (req, res) => {
   try {
     const userId = req.user._id
+    const period = req.query.period || 'week' // 'week' or 'month'
 
     // Active rooms created by user - fetched from in-memory rooms via query param
     // (Rooms are still in-memory for the real-time collaboration; this just shows user stats)
@@ -32,30 +33,47 @@ router.get('/summary', authMiddleware, async (req, res) => {
       date: { $gte: today },
     }).sort({ date: 1 }).limit(3)
 
-    // Study progress for the last 7 days
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
-    const startStr = sevenDaysAgo.toISOString().split('T')[0]
+    // Study progress for the last 7 days (week) or 30 days (month)
+    const daysBack = period === 'month' ? 29 : 6
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - daysBack)
+    const startStr = startDate.toISOString().split('T')[0]
 
     const activities = await StudyActivity.find({
       userId,
       date: { $gte: startStr },
     }).sort({ date: 1 })
 
-    // Build 7-day progress
+    // Build progress data
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     const activityMap = {}
     activities.forEach(a => { activityMap[a.date] = a.hours })
 
     const studyProgress = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const dateStr = d.toISOString().split('T')[0]
-      studyProgress.push({
-        day: dayNames[d.getDay()],
-        hours: activityMap[dateStr] || 0,
-      })
+    const isMonth = period === 'month'
+    
+    if (isMonth) {
+      // For month view, group by showing every 4 days
+      for (let i = daysBack; i >= 0; i -= 4) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        const dateStr = d.toISOString().split('T')[0]
+        studyProgress.push({
+          day: `${d.getMonth() + 1}/${d.getDate()}`,
+          hours: activityMap[dateStr] || 0,
+        })
+      }
+    } else {
+      // For week view, show each day
+      for (let i = daysBack; i >= 0; i--) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        const dateStr = d.toISOString().split('T')[0]
+        studyProgress.push({
+          day: dayNames[d.getDay()],
+          hours: activityMap[dateStr] || 0,
+        })
+      }
     }
 
     // Subject distribution from completed sessions

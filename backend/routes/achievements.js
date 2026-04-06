@@ -3,6 +3,8 @@ import { authMiddleware } from '../middleware/auth.js'
 import BadgeProgress from '../models/BadgeProgress.js'
 import StudyActivity from '../models/StudyActivity.js'
 import User from '../models/User.js'
+import { trackStudyHours } from '../services/badgeTrackingService.js'
+import { calculateTotalStudyHours } from '../lib/studyTimeUtils.js'
 
 const router = express.Router()
 
@@ -23,9 +25,34 @@ const BADGE_DEFINITIONS = [
 // ─── Get badges with user progress ───
 router.get('/badges', authMiddleware, async (req, res) => {
   try {
+    const user = await User.findById(req.user._id).select('totalStudyHours')
     const progress = await BadgeProgress.find({ userId: req.user._id })
     const progressMap = {}
     progress.forEach(p => { progressMap[p.badgeId] = p.current })
+
+    // Calculate actual total study hours (same as dashboard)
+    const actualTotalHours = await calculateTotalStudyHours(req.user._id, user)
+    const userTotalHours = Math.floor(actualTotalHours)
+    const focusMasterProgress = progressMap[2] || 0
+    
+    console.log(`📊 GET /badges - User ${req.user._id}`)
+    console.log(`   user.totalStudyHours (DB field): ${user?.totalStudyHours || 0}`)
+    console.log(`   actualTotalHours (calculated): ${actualTotalHours}`)
+    console.log(`   Focus Master badge (ID 2) current progress: ${focusMasterProgress}`)
+    
+    // Auto-sync Focus Master badge if out of sync
+    if (userTotalHours !== focusMasterProgress) {
+      console.log(`🔄 SYNCING Focus Master badge: ${focusMasterProgress} -> ${userTotalHours}`)
+      const updated = await BadgeProgress.findOneAndUpdate(
+        { userId: req.user._id, badgeId: 2 },
+        { $set: { current: userTotalHours } },
+        { upsert: true, new: true }
+      )
+      console.log(`✅ Badge updated in DB:`, updated)
+      progressMap[2] = userTotalHours
+    } else {
+      console.log(`✓ Focus Master badge already in sync`)
+    }
 
     const badges = BADGE_DEFINITIONS.map(b => ({
       ...b,
@@ -34,6 +61,7 @@ router.get('/badges', authMiddleware, async (req, res) => {
 
     res.json({ ok: true, badges })
   } catch (err) {
+    console.error('Failed to fetch badges:', err)
     res.status(500).json({ error: 'Failed to fetch badges.' })
   }
 })
@@ -44,14 +72,13 @@ router.get('/leaderboard', async (req, res) => {
     const users = await User.find({})
       .sort({ totalXP: -1 })
       .limit(20)
-      .select('name totalXP institution currentStreak')
+      .select('name totalXP currentStreak')
 
     const leaderboard = users.map((u, i) => ({
       rank: i + 1,
       name: u.name,
       xp: u.totalXP || 0,
       avatar: u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2),
-      dept: u.institution || 'N/A',
       streak: u.currentStreak || 0,
     }))
 
@@ -111,10 +138,19 @@ router.post('/activity', authMiddleware, async (req, res) => {
     )
 
     // Update user stats
-    await User.findByIdAndUpdate(req.user._id, {
-      $inc: { totalStudyHours: hours },
-      lastStudyDate: new Date(),
-    })
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $inc: { totalStudyHours: hours },
+        lastStudyDate: new Date(),
+      },
+      { new: true }
+    )
+
+    // Track badge progress for study hours (includes streak calculation)
+    trackStudyHours(req.user._id, hours).catch(err => 
+      console.error('Badge tracking error:', err)
+    )
 
     res.json({ ok: true })
   } catch (err) {
@@ -133,6 +169,15 @@ router.get('/stats', authMiddleware, async (req, res) => {
       return def && p.current >= def.target
     }).length
 
+    // Calculate total study hours from all sources
+    const totalStudyHours = await calculateTotalStudyHours(req.user._id, user)
+
+    // Calculate global rank based on totalXP
+    const usersWithHigherXP = await User.countDocuments({
+      totalXP: { $gt: user.totalXP || 0 }
+    })
+    const rank = usersWithHigherXP + 1
+
     res.json({
       ok: true,
       stats: {
@@ -141,11 +186,27 @@ router.get('/stats', authMiddleware, async (req, res) => {
         completedBadges,
         currentStreak: user.currentStreak || 0,
         longestStreak: user.longestStreak || 0,
-        totalStudyHours: user.totalStudyHours || 0,
+        totalStudyHours,
+        rank: `#${rank}`,
       },
     })
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch stats.' })
+  }
+})
+
+// ─── Recalculate all badges for current user ───
+router.post('/recalculate', authMiddleware, async (req, res) => {
+  try {
+    const { recalculateAllBadges, recalculateXP } = await import('../services/badgeTrackingService.js')
+    await Promise.all([
+      recalculateAllBadges(req.user._id),
+      recalculateXP(req.user._id)
+    ])
+    res.json({ ok: true, message: 'Badges and XP recalculated successfully' })
+  } catch (err) {
+    console.error('Failed to recalculate badges:', err)
+    res.status(500).json({ error: 'Failed to recalculate badges.' })
   }
 })
 

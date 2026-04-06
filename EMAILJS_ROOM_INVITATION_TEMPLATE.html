@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyHub Room Invitation</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #F2CF7E 0%, #e0bd6c 100%); padding: 40px 30px; text-align: center;">
+                            <h1 style="margin: 0; color: #000000; font-size: 32px; font-weight: bold; letter-spacing: -0.5px;">
+                                📚 StudyHub
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #000000; font-size: 16px; opacity: 0.9;">
+                                You're Invited to a Study Session
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Main Content -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            
+                            <!-- Greeting -->
+                            <p style="margin: 0 0 20px 0; font-size: 18px; color: #333333; line-height: 1.6;">
+                                Hi there! 👋
+                            </p>
+                            
+                            <!-- Invitation Message -->
+                            <p style="margin: 0 0 25px 0; font-size: 16px; color: #555555; line-height: 1.6;">
+                                <strong style="color: #F2CF7E;">{{from_name}}</strong> has invited you to join a collaborative study session on StudyHub.
+                            </p>
+                            
+                            <!-- Room Details Card -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(135deg, #FFF9E6 0%, #FFF5D6 100%); border-radius: 10px; border: 2px solid #F2CF7E; margin: 0 0 30px 0;">
+                                <tr>
+                                    <td style="padding: 25px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="color: #666666; font-size: 14px; font-weight: bold;">📖 Room Name:</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 0 0 15px 0;">
+                                                    <span style="color: #000000; font-size: 18px; font-weight: bold;">{{room_name}}</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px 0;">
+                                                    <span style="color: #666666; font-size: 14px; font-weight: bold;">📚 Subject:</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 0;">
+                                                    <span style="color: #000000; font-size: 18px; font-weight: bold;">{{subject}}</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Call to Action -->
+                            <p style="margin: 0 0 25px 0; font-size: 16px; color: #555555; line-height: 1.6;">
+                                Click the button below to join the study room and start collaborating:
+                            </p>
+                            
+                            <!-- Join Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{room_link}}" style="display: inline-block; background: linear-gradient(135deg, #F2CF7E 0%, #e0bd6c 100%); color: #000000; text-decoration: none; padding: 16px 50px; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 4px 6px rgba(242, 207, 126, 0.3); transition: all 0.3s;">
+                                            🚀 Join Study Room
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Alternative Link -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f9f9f9; border-radius: 8px; padding: 20px; margin: 0 0 20px 0;">
+                                <tr>
+                                    <td>
+                                        <p style="margin: 0 0 10px 0; font-size: 13px; color: #666666; font-weight: bold;">
+                                            Or copy and paste this link:
+                                        </p>
+                                        <p style="margin: 0; font-size: 13px; word-break: break-all;">
+                                            <a href="{{room_link}}" style="color: #F2CF7E; text-decoration: underline;">{{room_link}}</a>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Features -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0 0 0;">
+                                <tr>
+                                    <td style="padding: 0 0 15px 0;">
+                                        <p style="margin: 0; font-size: 14px; color: #666666;">
+                                            <strong style="color: #F2CF7E;">✨ What you can do:</strong>
+                                        </p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <table width="100%" cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td style="padding: 5px 0;">
+                                                    <span style="font-size: 14px; color: #555555;">🎥 Video & Audio collaboration</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 5px 0;">
+                                                    <span style="font-size: 14px; color: #555555;">💬 Real-time chat</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 5px 0;">
+                                                    <span style="font-size: 14px; color: #555555;">📝 Shared notes & resources</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 5px 0;">
+                                                    <span style="font-size: 14px; color: #555555;">🤖 AI-powered study tools</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f9f9f9; padding: 30px; text-align: center; border-top: 1px solid #eeeeee;">
+                            <p style="margin: 0 0 10px 0; font-size: 12px; color: #999999; line-height: 1.6;">
+                                This invitation was sent from <strong>StudyHub</strong>
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #999999; line-height: 1.6;">
+                                If you didn't expect this email, you can safely ignore it.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

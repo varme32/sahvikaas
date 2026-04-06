@@ -246,8 +246,8 @@ export async function apiGoogleAuth({ googleId, email, name, avatar }) {
 // ═══════════════════════════════════════════
 // DASHBOARD API
 // ═══════════════════════════════════════════
-export async function getDashboardSummary() {
-  return apiRequest('/api/dashboard/summary')
+export async function getDashboardSummary(period = 'week') {
+  return apiRequest(`/api/dashboard/summary?period=${period}`)
 }
 
 // ═══════════════════════════════════════════
@@ -359,6 +359,12 @@ export async function logStudyActivity(date, hours) {
 
 export async function getAchievementStats() {
   return apiRequest('/api/achievements/stats')
+}
+
+export async function recalculateBadges() {
+  return apiRequest('/api/achievements/recalculate', {
+    method: 'POST',
+  })
 }
 
 // ═══════════════════════════════════════════════
