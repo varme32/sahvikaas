@@ -280,9 +280,6 @@ export default function DashboardLayout() {
                 </div>
               )}
             </div>
-            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center hover:bg-gray-50 transition-colors">
-              <i className="ri-settings-3-line text-lg sm:text-xl text-gray-700" />
-            </button>
           </div>
         </header>
 

@@ -48,60 +48,7 @@ const aiTools = [
     category: 'practice',
     route: '/ai-tools/flashcards',
   },
-  {
-    id: 'doubts',
-    name: 'Doubt Solver',
-    desc: 'Ask any academic doubt and get step-by-step solutions with visual explanations.',
-    icon: 'ri-lightbulb-line',
-    action: 'Ask Doubt',
-    category: 'learn',
-    route: '/ai-tools/tool/doubt-solver',
-  },
-  {
-    id: 'predictor',
-    name: 'Exam Predictor',
-    desc: 'Predict important questions from past papers using AI pattern analysis.',
-    icon: 'ri-bar-chart-grouped-line',
-    action: 'Predict Questions',
-    category: 'practice',
-    route: '/ai-tools/tool/exam-predictor',
-  },
-  {
-    id: 'essay',
-    name: 'Assignment Helper',
-    desc: 'Structure and draft assignments with AI. Outline → Draft → Review workflow.',
-    icon: 'ri-edit-2-line',
-    action: 'Start Writing',
-    category: 'create',
-    route: '/ai-tools/tool/assignment-helper',
-  },
-  {
-    id: 'eli5',
-    name: 'Explain Like I\'m 5',
-    desc: 'Simplify complex topics into easy language. Adjust the complexity level with a slider.',
-    icon: 'ri-emotion-happy-line',
-    action: 'Simplify Topic',
-    category: 'learn',
-    route: '/ai-tools/tool/eli5',
-  },
-  {
-    id: 'formulas',
-    name: 'Formula Sheet Generator',
-    desc: 'Generate comprehensive formula sheets for any subject. Printable & downloadable.',
-    icon: 'ri-functions',
-    action: 'Generate Sheet',
-    category: 'create',
-    route: '/ai-tools/tool/formula-sheet',
-  },
-  {
-    id: 'voice',
-    name: 'Voice Notes to Text',
-    desc: 'Convert recorded lectures to formatted text notes. Upload audio and get organized notes.',
-    icon: 'ri-mic-line',
-    action: 'Convert Audio',
-    category: 'create',
-    route: '/ai-tools/tool/voice-to-text',
-  },
+
   {
     id: 'lab',
     name: 'Lab Report Writer',
@@ -186,7 +133,7 @@ export default function AIToolsPage() {
         </div>
         <h2 className="text-xl sm:text-3xl font-bold text-black mb-3">Supercharge Your Studies with AI</h2>
         <p className="text-sm sm:text-base text-black/80 max-w-2xl mb-4">
-          12 powerful AI tools designed to help you learn faster, practice smarter, and create better study materials.
+          6 powerful AI tools designed to help you learn faster, practice smarter, and create better study materials.
         </p>
         <div className="flex flex-wrap gap-4 text-sm">
           <div className="flex items-center gap-2">
@@ -215,7 +162,7 @@ export default function AIToolsPage() {
         <h3 className="font-semibold text-gray-900 mb-4 text-center">How It Works</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { step: '1', title: 'Choose a Tool', desc: 'Pick from 12 AI-powered tools', icon: 'ri-cursor-line' },
+            { step: '1', title: 'Choose a Tool', desc: 'Pick from 6 AI-powered tools', icon: 'ri-cursor-line' },
             { step: '2', title: 'Provide Input', desc: 'Enter your topic, question, or content', icon: 'ri-keyboard-line' },
             { step: '3', title: 'Get Results', desc: 'Receive AI-generated study materials', icon: 'ri-sparkle-line' },
           ].map(s => (

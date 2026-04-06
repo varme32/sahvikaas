@@ -643,7 +643,7 @@ export default function StudyRoomPage() {
             <i className="ri-robot-2-line" />
           </button>
 
-          <button onClick={() => setSettingsOpen(true)} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors">
+          <button onClick={() => setSettingsOpen(true)} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors" style={{ display: 'none' }}>
             <i className="ri-settings-3-line text-black" />
           </button>
 
@@ -765,6 +765,7 @@ export default function StudyRoomPage() {
           <button
             onClick={() => { setSettingsOpen(true); setControlsExpanded(false) }}
             className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30"
+            style={{ display: 'none' }}
           >
             <i className="ri-settings-3-line text-black text-sm" />
           </button>
