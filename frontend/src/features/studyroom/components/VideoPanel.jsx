@@ -2,26 +2,47 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { connectSocket, getSocket } from '../../../lib/socket'
 import { getWebRtcIceConfig } from '../../../lib/api'
 
+// ─── Constants for connection health monitoring ───
+const HEALTH_CHECK_INTERVAL = 8000   // Check peer health every 8s
+const RECONNECT_BASE_DELAY = 2000    // Base delay for reconnection backoff
+const MAX_RECONNECT_ATTEMPTS = 5     // Max auto-reconnect attempts per peer
+
 const DEFAULT_ICE_CONFIG = {
   iceServers: [
+    // Multiple STUN servers for reliability
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:openrelay.metered.ca:80' },
+    // Free TURN servers (OpenRelay by Metered - 20GB/month free)
+    // UDP on port 80 (bypasses most firewalls)
     {
       urls: 'turn:openrelay.metered.ca:80',
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
+    // TCP on port 80 (fallback when UDP is blocked)
+    {
+      urls: 'turn:openrelay.metered.ca:80?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    // UDP on port 443 (bypasses HTTPS-only firewalls)
     {
       urls: 'turn:openrelay.metered.ca:443',
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
+    // TCP on port 443 (most compatible - works through deep packet inspection)
     {
       urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    // TURNS (TLS) on port 443 (bypasses DPI firewalls that inspect TCP)
+    {
+      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
@@ -63,6 +84,9 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   const activeMeetingRef = useRef(null)
   const userNameRef = useRef(userName || 'User ' + Math.floor(Math.random() * 1000))
   const negotiatingRef = useRef(new Set()) // Track ongoing negotiations
+  const reconnectAttemptsRef = useRef(new Map()) // peerId -> attempt count
+  const healthCheckRef = useRef(null) // interval ID for health checks
+  const peerNamesRef = useRef(new Map()) // peerId -> name (for reconnection)
 
   // ========== AUTO-CONNECT on mount ==========
   useEffect(() => {
@@ -258,12 +282,61 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   }, [isScreenSharing, connected])
 
   // ========== WebRTC Peer Connection ==========
+  // Auto-reconnect a failed peer: tear down, recreate, re-offer
+  const reconnectPeer = useCallback((remoteSocketId) => {
+    const remoteName = peerNamesRef.current.get(remoteSocketId) || 'Peer'
+    const attempts = reconnectAttemptsRef.current.get(remoteSocketId) || 0
+    if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.error(`❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached for ${remoteName}`)
+      reconnectAttemptsRef.current.delete(remoteSocketId)
+      return
+    }
+
+    const delay = RECONNECT_BASE_DELAY * Math.pow(1.5, attempts)
+    reconnectAttemptsRef.current.set(remoteSocketId, attempts + 1)
+    console.log(`🔄 Scheduling reconnect #${attempts + 1} for ${remoteName} in ${delay}ms`)
+
+    setTimeout(async () => {
+      // Tear down old connection
+      const oldPc = peersRef.current.get(remoteSocketId)
+      if (oldPc) { try { oldPc.close() } catch {} }
+      peersRef.current.delete(remoteSocketId)
+      pendingIceRef.current.delete(remoteSocketId)
+      negotiatingRef.current.delete(remoteSocketId)
+
+      if (!socketRef.current?.connected || !activeMeetingRef.current) return
+
+      try {
+        negotiatingRef.current.add(remoteSocketId)
+        const pc = createPeerConnection(remoteSocketId, remoteName)
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+        await pc.setLocalDescription(offer)
+        socketRef.current.emit('offer', { to: remoteSocketId, offer })
+        console.log(`✅ Reconnect offer sent to ${remoteName} (attempt ${attempts + 1})`)
+      } catch (err) {
+        console.error(`❌ Reconnect offer failed for ${remoteName}:`, err)
+        negotiatingRef.current.delete(remoteSocketId)
+      }
+    }, delay)
+  }, [])
+
   const createPeerConnection = useCallback((remoteSocketId, remoteName) => {
     const existingPeer = peersRef.current.get(remoteSocketId)
     if (existingPeer) {
-      console.log(`♻️ Reusing existing peer connection for ${remoteName}`)
-      return existingPeer
+      // Only reuse if still healthy
+      const state = existingPeer.connectionState || existingPeer.iceConnectionState
+      if (state === 'connected' || state === 'new' || state === 'connecting') {
+        console.log(`♻️ Reusing healthy peer connection for ${remoteName} (state: ${state})`)
+        return existingPeer
+      }
+      // Close stale/dead connection
+      console.log(`♻️ Closing stale peer connection for ${remoteName} (state: ${state})`)
+      try { existingPeer.close() } catch {}
+      peersRef.current.delete(remoteSocketId)
     }
+
+    // Store name for reconnection
+    peerNamesRef.current.set(remoteSocketId, remoteName)
 
     console.log(`🔗 Creating new peer connection for ${remoteName} (${remoteSocketId})`)
     const pc = new RTCPeerConnection(iceConfigRef.current || DEFAULT_ICE_CONFIG)
@@ -271,7 +344,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     // Add local tracks immediately
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
-        const sender = pc.addTrack(track, localStreamRef.current)
+        pc.addTrack(track, localStreamRef.current)
         console.log(`📤 Added ${track.kind} track to peer ${remoteName}`)
       })
     }
@@ -300,25 +373,33 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     // Send ICE candidates to remote peer
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`🧊 Sending ICE candidate to ${remoteName}`)
         socketRef.current?.emit('ice-candidate', { to: remoteSocketId, candidate: event.candidate })
       } else {
         console.log(`✅ ICE gathering complete for ${remoteName}`)
       }
     }
 
-    // Monitor connection state
+    // Monitor connection state — auto-reconnect on failure
     pc.onconnectionstatechange = () => {
       console.log(`🔌 Peer ${remoteName} connection state: ${pc.connectionState}`)
       
       if (pc.connectionState === 'connected') {
         console.log(`✅ Successfully connected to ${remoteName}`)
+        // Reset reconnect attempts on successful connection
+        reconnectAttemptsRef.current.delete(remoteSocketId)
       } else if (pc.connectionState === 'failed') {
-        console.error(`❌ Connection failed with ${remoteName}, attempting restart...`)
-        // Attempt ICE restart
-        pc.restartIce()
+        console.error(`❌ Connection failed with ${remoteName}, scheduling auto-reconnect...`)
+        reconnectPeer(remoteSocketId)
       } else if (pc.connectionState === 'disconnected') {
-        console.warn(`⚠️ Disconnected from ${remoteName}`)
+        console.warn(`⚠️ Disconnected from ${remoteName}, waiting for recovery...`)
+        // Give 5 seconds for natural recovery before forcing reconnect
+        setTimeout(() => {
+          const currentPc = peersRef.current.get(remoteSocketId)
+          if (currentPc && currentPc.connectionState === 'disconnected') {
+            console.warn(`⚠️ ${remoteName} still disconnected after 5s, reconnecting...`)
+            reconnectPeer(remoteSocketId)
+          }
+        }, 5000)
       }
     }
 
@@ -328,8 +409,8 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       
       if (pc.iceConnectionState === 'failed') {
         console.error(`❌ ICE connection failed with ${remoteName}`)
-        // Attempt ICE restart
-        pc.restartIce()
+        // Try ICE restart first, if that doesn't work connectionState handler will trigger full reconnect
+        try { pc.restartIce() } catch {}
       }
     }
 
@@ -340,7 +421,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
     peersRef.current.set(remoteSocketId, pc)
     return pc
-  }, [])
+  }, [reconnectPeer])
 
   const queueIceCandidate = useCallback((remoteSocketId, candidate) => {
     const queued = pendingIceRef.current.get(remoteSocketId) || []
@@ -481,43 +562,40 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     socket.on('offer', async ({ from, offer, userName: remoteName }) => {
       console.log(`📥 Received offer from ${remoteName} (${from})`)
       
-      // Check if we're already negotiating with this peer
-      if (negotiatingRef.current.has(from)) {
-        console.log(`⏳ Already negotiating with ${remoteName}, ignoring duplicate offer`)
-        return
-      }
-      
       try {
-        negotiatingRef.current.add(from)
-        const pc = createPeerConnection(from, remoteName)
-        
-        // Check signaling state before setting remote description
-        if (pc.signalingState !== 'stable') {
-          console.warn(`⚠️ Peer ${remoteName} in wrong state for offer: ${pc.signalingState}, closing and recreating`)
-          pc.close()
+        // Always close any existing non-stable connection and rebuild
+        const existingPc = peersRef.current.get(from)
+        let pc
+        if (existingPc && existingPc.signalingState !== 'stable') {
+          console.log(`♻️ Closing non-stable peer for ${remoteName} (state: ${existingPc.signalingState})`)
+          try { existingPc.close() } catch {}
           peersRef.current.delete(from)
-          const newPc = createPeerConnection(from, remoteName)
-          
-          console.log(`📝 Setting remote description (offer) from ${remoteName}`)
-          await newPc.setRemoteDescription(new RTCSessionDescription(offer))
-          
-          console.log(`🧊 Flushing queued ICE candidates for ${remoteName}`)
-          await flushQueuedIceCandidates(from)
-          
-          console.log(`📤 Creating answer for ${remoteName}`)
-          const answer = await newPc.createAnswer()
-          await newPc.setLocalDescription(answer)
-          
-          socket.emit('answer', { to: from, answer })
           negotiatingRef.current.delete(from)
-          console.log(`✅ Answer sent to ${remoteName}`)
-          return
+          pc = createPeerConnection(from, remoteName)
+        } else if (existingPc && existingPc.signalingState === 'have-local-offer') {
+          // Glare resolution: both sides sent offers simultaneously
+          // Use lexicographic comparison of socket IDs to determine who yields
+          const isPolite = socket.id > from
+          if (isPolite) {
+            console.log(`🤝 Glare detected with ${remoteName}, we are polite — accepting their offer`)
+            try { existingPc.close() } catch {}
+            peersRef.current.delete(from)
+            negotiatingRef.current.delete(from)
+            pc = createPeerConnection(from, remoteName)
+          } else {
+            console.log(`🤝 Glare detected with ${remoteName}, we are impolite — ignoring their offer`)
+            return
+          }
+        } else {
+          pc = createPeerConnection(from, remoteName)
         }
+        
+        negotiatingRef.current.add(from)
         
         console.log(`📝 Setting remote description (offer) from ${remoteName}`)
         await pc.setRemoteDescription(new RTCSessionDescription(offer))
         
-        console.log(`🧊 Flushing queued ICE candidates for ${remoteName}`)
+        // Flush any queued ICE candidates now that remote description is set
         await flushQueuedIceCandidates(from)
         
         console.log(`📤 Creating answer for ${remoteName}`)
@@ -732,11 +810,42 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     socketRef.current?.emit('screen-share', { meetingId: activeMeetingRef.current, sharing: false })
   }
 
+  // ========== Connection Health Monitor ==========
+  useEffect(() => {
+    if (!connected) return
+
+    healthCheckRef.current = setInterval(() => {
+      for (const [peerId, pc] of peersRef.current) {
+        const state = pc.connectionState || pc.iceConnectionState
+        if (state === 'failed' || state === 'closed') {
+          const name = peerNamesRef.current.get(peerId) || 'Peer'
+          console.warn(`💔 Health check: ${name} is ${state}, triggering reconnect`)
+          reconnectPeer(peerId)
+        }
+      }
+    }, HEALTH_CHECK_INTERVAL)
+
+    return () => {
+      if (healthCheckRef.current) {
+        clearInterval(healthCheckRef.current)
+        healthCheckRef.current = null
+      }
+    }
+  }, [connected, reconnectPeer])
+
   // ========== Cleanup ==========
   const cleanup = () => {
-    for (const [, pc] of peersRef.current) pc.close()
+    // Stop health checks
+    if (healthCheckRef.current) {
+      clearInterval(healthCheckRef.current)
+      healthCheckRef.current = null
+    }
+    for (const [, pc] of peersRef.current) { try { pc.close() } catch {} }
     peersRef.current.clear()
     pendingIceRef.current.clear()
+    reconnectAttemptsRef.current.clear()
+    peerNamesRef.current.clear()
+    negotiatingRef.current.clear()
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null }
     if (screenStreamRef.current) { screenStreamRef.current.getTracks().forEach(t => t.stop()); screenStreamRef.current = null }
     // Clean up WebRTC socket listeners but do NOT disconnect the shared socket
@@ -925,13 +1034,9 @@ function RemoteVideo({ participant, viewerIsMobile }) {
     const video = videoRef.current
     const stream = participant.stream
     
-    if (!video) {
-      console.log(`⚠️ Video element not ready for ${participant.name}`)
-      return
-    }
+    if (!video) return
     
     if (!stream) {
-      console.log(`⚠️ No stream for ${participant.name}`)
       setHasStream(false)
       setIsPlaying(false)
       streamSetRef.current = false
@@ -952,34 +1057,46 @@ function RemoteVideo({ participant, viewerIsMobile }) {
     streamSetRef.current = true
     setHasStream(true)
 
-    // Handle stream events
-    const handleLoadedMetadata = () => {
-      console.log(`📊 Metadata loaded for ${participant.name}`)
+    // Attempt to play with retry for autoplay failures
+    const attemptPlay = () => {
+      if (!video.paused) return
       video.play()
         .then(() => {
-          console.log(`▶️ Video playing for ${participant.name}`)
           setIsPlaying(true)
         })
         .catch(err => {
           console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err.message)
           setIsPlaying(false)
+          // Retry after a short delay (browsers sometimes allow autoplay after a brief wait)
+          setTimeout(() => {
+            if (video.paused && video.srcObject) {
+              video.play().then(() => setIsPlaying(true)).catch(() => {})
+            }
+          }, 1000)
         })
     }
 
-    const handlePlay = () => {
-      console.log(`▶️ Video started playing for ${participant.name}`)
-      setIsPlaying(true)
-    }
+    const handleLoadedMetadata = () => attemptPlay()
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+    const handleError = () => setIsPlaying(false)
 
-    const handlePause = () => {
-      console.log(`⏸️ Video paused for ${participant.name}`)
-      setIsPlaying(false)
-    }
-
-    const handleError = (e) => {
-      console.error(`❌ Video error for ${participant.name}:`, e)
-      setIsPlaying(false)
-    }
+    // Monitor tracks ending (indicates dead stream)
+    const trackHandlers = []
+    stream.getTracks().forEach(track => {
+      const onEnded = () => {
+        console.warn(`⚠️ Track ${track.kind} ended for ${participant.name}`)
+        // Check if all tracks are ended
+        const allEnded = stream.getTracks().every(t => t.readyState === 'ended')
+        if (allEnded) {
+          setHasStream(false)
+          setIsPlaying(false)
+          streamSetRef.current = false
+        }
+      }
+      track.addEventListener('ended', onEnded)
+      trackHandlers.push({ track, handler: onEnded })
+    })
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('play', handlePlay)
@@ -988,7 +1105,7 @@ function RemoteVideo({ participant, viewerIsMobile }) {
 
     // Try to play immediately if metadata is already loaded
     if (video.readyState >= 2) {
-      handleLoadedMetadata()
+      attemptPlay()
     }
 
     return () => {
@@ -996,6 +1113,7 @@ function RemoteVideo({ participant, viewerIsMobile }) {
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('error', handleError)
+      trackHandlers.forEach(({ track, handler }) => track.removeEventListener('ended', handler))
     }
   }, [participant.stream, participant.name])
 

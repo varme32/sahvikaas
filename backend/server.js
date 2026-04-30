@@ -272,6 +272,7 @@ function getIceConfig() {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
   ]
 
   const turnUrlsFromEnv = (process.env.WEBRTC_TURN_URLS || '')
@@ -285,18 +286,34 @@ function getIceConfig() {
   const turnServers = turnUrlsFromEnv.length > 0 && turnUsername && turnCredential
     ? turnUrlsFromEnv.map(url => ({ urls: url, username: turnUsername, credential: turnCredential }))
     : [
+        // OpenRelay by Metered - free TURN (20GB/month)
+        // UDP on port 80
         {
           urls: 'turn:openrelay.metered.ca:80',
           username: 'openrelayproject',
           credential: 'openrelayproject',
         },
+        // TCP on port 80
+        {
+          urls: 'turn:openrelay.metered.ca:80?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        // UDP on port 443
         {
           urls: 'turn:openrelay.metered.ca:443',
           username: 'openrelayproject',
           credential: 'openrelayproject',
         },
+        // TCP on port 443 (most firewall-friendly)
         {
           urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject',
+        },
+        // TURNS (TLS) on port 443 (bypasses DPI)
+        {
+          urls: 'turns:openrelay.metered.ca:443?transport=tcp',
           username: 'openrelayproject',
           credential: 'openrelayproject',
         },
