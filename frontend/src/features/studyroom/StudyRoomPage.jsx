@@ -643,9 +643,16 @@ export default function StudyRoomPage() {
             <i className="ri-robot-2-line" />
           </button>
 
-          <button onClick={() => setSettingsOpen(true)} className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors" style={{ display: 'none' }}>
-            <i className="ri-settings-3-line text-black" />
-          </button>
+          {/* Settings Button (Host Only) */}
+          {isHost && (
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"
+              title="Meeting Settings"
+            >
+              <i className="ri-settings-3-line text-black" />
+            </button>
+          )}
 
           <div className="w-px h-6 bg-black/20" />
 
@@ -762,13 +769,16 @@ export default function StudyRoomPage() {
           >
             <i className="ri-robot-2-line text-sm" />
           </button>
-          <button
-            onClick={() => { setSettingsOpen(true); setControlsExpanded(false) }}
-            className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30"
-            style={{ display: 'none' }}
-          >
-            <i className="ri-settings-3-line text-black text-sm" />
-          </button>
+          {/* Settings Button (Host Only) */}
+          {isHost && (
+            <button
+              onClick={() => { setSettingsOpen(true); setControlsExpanded(false) }}
+              className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center hover:bg-white/30"
+              title="Meeting Settings"
+            >
+              <i className="ri-settings-3-line text-black text-sm" />
+            </button>
+          )}
           <button
             onClick={() => { setIsScreenSharing(!isScreenSharing); setControlsExpanded(false) }}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isScreenSharing ? 'bg-blue-100 text-blue-600' : 'bg-white/20 text-black'}`}
