@@ -922,12 +922,16 @@ function RemoteVideo({ participant, viewerIsMobile }) {
   useEffect(() => {
     const video = videoRef.current
     if (!video || !participant.stream) {
+      console.log(`⚠️ No video element or stream for ${participant.name}`, { hasVideo: !!video, hasStream: !!participant.stream })
       setHasStream(false)
       setIsPlaying(false)
       return
     }
 
-    console.log(`🎥 Setting stream for ${participant.name}`)
+    console.log(`🎥 Setting stream for ${participant.name}`, {
+      streamId: participant.stream.id,
+      tracks: participant.stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+    })
     video.srcObject = participant.stream
     setHasStream(true)
 
