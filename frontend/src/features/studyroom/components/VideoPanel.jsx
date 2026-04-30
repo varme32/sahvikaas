@@ -62,6 +62,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   const socketRef = useRef(null)
   const activeMeetingRef = useRef(null)
   const userNameRef = useRef(userName || 'User ' + Math.floor(Math.random() * 1000))
+  const negotiatingRef = useRef(new Set()) // Track ongoing negotiations
 
   // ========== AUTO-CONNECT on mount ==========
   useEffect(() => {
@@ -413,13 +414,29 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           return next
         })
         
-        // Skip peer connection creation if we already have one
-        if (peersRef.current.has(user.socketId)) {
-          console.log(`♻️ Peer connection already exists for ${user.name}`)
+        // Check if we're already negotiating with this peer
+        if (negotiatingRef.current.has(user.socketId)) {
+          console.log(`⏳ Already negotiating with ${user.name}, skipping`)
           continue
         }
         
+        // Check if we already have a peer connection
+        const existingPc = peersRef.current.get(user.socketId)
+        if (existingPc) {
+          // If peer connection exists but is not in stable state, close and recreate
+          if (existingPc.signalingState !== 'stable') {
+            console.log(`♻️ Closing unstable peer connection for ${user.name} (state: ${existingPc.signalingState})`)
+            existingPc.close()
+            peersRef.current.delete(user.socketId)
+            negotiatingRef.current.delete(user.socketId)
+          } else {
+            console.log(`♻️ Peer connection already exists for ${user.name} in stable state`)
+            continue
+          }
+        }
+        
         try {
+          negotiatingRef.current.add(user.socketId)
           const pc = createPeerConnection(user.socketId, user.name)
           console.log(`📤 Creating offer for ${user.name}`)
           const offer = await pc.createOffer({
@@ -431,6 +448,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           console.log(`✅ Offer sent to ${user.name}`)
         } catch (error) {
           console.error(`❌ Failed to create offer for ${user.name}:`, error)
+          negotiatingRef.current.delete(user.socketId)
         }
       }
     })
@@ -463,8 +481,39 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
     socket.on('offer', async ({ from, offer, userName: remoteName }) => {
       console.log(`📥 Received offer from ${remoteName} (${from})`)
       
+      // Check if we're already negotiating with this peer
+      if (negotiatingRef.current.has(from)) {
+        console.log(`⏳ Already negotiating with ${remoteName}, ignoring duplicate offer`)
+        return
+      }
+      
       try {
+        negotiatingRef.current.add(from)
         const pc = createPeerConnection(from, remoteName)
+        
+        // Check signaling state before setting remote description
+        if (pc.signalingState !== 'stable') {
+          console.warn(`⚠️ Peer ${remoteName} in wrong state for offer: ${pc.signalingState}, closing and recreating`)
+          pc.close()
+          peersRef.current.delete(from)
+          const newPc = createPeerConnection(from, remoteName)
+          
+          console.log(`📝 Setting remote description (offer) from ${remoteName}`)
+          await newPc.setRemoteDescription(new RTCSessionDescription(offer))
+          
+          console.log(`🧊 Flushing queued ICE candidates for ${remoteName}`)
+          await flushQueuedIceCandidates(from)
+          
+          console.log(`📤 Creating answer for ${remoteName}`)
+          const answer = await newPc.createAnswer()
+          await newPc.setLocalDescription(answer)
+          
+          socket.emit('answer', { to: from, answer })
+          negotiatingRef.current.delete(from)
+          console.log(`✅ Answer sent to ${remoteName}`)
+          return
+        }
+        
         console.log(`📝 Setting remote description (offer) from ${remoteName}`)
         await pc.setRemoteDescription(new RTCSessionDescription(offer))
         
@@ -476,9 +525,11 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         await pc.setLocalDescription(answer)
         
         socket.emit('answer', { to: from, answer })
+        negotiatingRef.current.delete(from)
         console.log(`✅ Answer sent to ${remoteName}`)
       } catch (error) {
         console.error(`❌ Failed to handle offer from ${remoteName}:`, error)
+        negotiatingRef.current.delete(from)
       }
     })
 
@@ -488,6 +539,14 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       const pc = peersRef.current.get(from)
       if (!pc) {
         console.warn(`⚠️ No peer connection found for ${from}`)
+        negotiatingRef.current.delete(from)
+        return
+      }
+      
+      // Check signaling state before setting remote description
+      if (pc.signalingState !== 'have-local-offer') {
+        console.warn(`⚠️ Peer ${from} in wrong state for answer: ${pc.signalingState}, ignoring`)
+        negotiatingRef.current.delete(from)
         return
       }
       
@@ -498,9 +557,11 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         console.log(`🧊 Flushing queued ICE candidates for ${from}`)
         await flushQueuedIceCandidates(from)
         
+        negotiatingRef.current.delete(from)
         console.log(`✅ Answer processed successfully for ${from}`)
       } catch (error) {
         console.error(`❌ Failed to handle answer from ${from}:`, error)
+        negotiatingRef.current.delete(from)
       }
     })
 
@@ -539,8 +600,9 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         peersRef.current.delete(id)
       }
       
-      // Clear queued ICE candidates
+      // Clear queued ICE candidates and negotiation state
       pendingIceRef.current.delete(id)
+      negotiatingRef.current.delete(id)
       
       setParticipants(prev => {
         const next = new Map(prev)
