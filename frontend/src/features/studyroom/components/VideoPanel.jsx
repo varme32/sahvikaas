@@ -918,21 +918,38 @@ function RemoteVideo({ participant, viewerIsMobile }) {
   const videoRef = useRef(null)
   const [hasStream, setHasStream] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const streamSetRef = useRef(false)
 
+  // Effect to set stream when both video element and stream are available
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !participant.stream) {
-      console.log(`⚠️ No video element or stream for ${participant.name}`, { hasVideo: !!video, hasStream: !!participant.stream })
+    const stream = participant.stream
+    
+    if (!video) {
+      console.log(`⚠️ Video element not ready for ${participant.name}`)
+      return
+    }
+    
+    if (!stream) {
+      console.log(`⚠️ No stream for ${participant.name}`)
       setHasStream(false)
       setIsPlaying(false)
+      streamSetRef.current = false
+      return
+    }
+
+    // Only set stream if it hasn't been set yet or if it's a different stream
+    if (streamSetRef.current && video.srcObject === stream) {
       return
     }
 
     console.log(`🎥 Setting stream for ${participant.name}`, {
-      streamId: participant.stream.id,
-      tracks: participant.stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+      streamId: stream.id,
+      tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
     })
-    video.srcObject = participant.stream
+    
+    video.srcObject = stream
+    streamSetRef.current = true
     setHasStream(true)
 
     // Handle stream events
