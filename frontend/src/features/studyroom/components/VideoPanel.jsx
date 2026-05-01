@@ -88,6 +88,12 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
   const healthCheckRef = useRef(null) // interval ID for health checks
   const peerNamesRef = useRef(new Map()) // peerId -> name (for reconnection)
 
+  // Keep refs for media state to avoid stale closures in async flows
+  const isMicOnRef = useRef(isMicOn)
+  const isVideoOnRef = useRef(isVideoOn)
+  useEffect(() => { isMicOnRef.current = isMicOn }, [isMicOn])
+  useEffect(() => { isVideoOnRef.current = isVideoOn }, [isVideoOn])
+
   // ========== AUTO-CONNECT on mount ==========
   useEffect(() => {
     if (!meetingId) return
@@ -154,19 +160,19 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         localStreamRef.current = stream
         if (localVideoRef.current) localVideoRef.current.srcObject = stream
         
-        // Set initial track states
+        // Set initial track states using refs to avoid stale closures
         stream.getAudioTracks().forEach(t => { 
-          t.enabled = isMicOn
+          t.enabled = isMicOnRef.current
           console.log(`🎤 Audio track enabled: ${t.enabled}`)
         })
         stream.getVideoTracks().forEach(t => { 
-          t.enabled = isVideoOn
+          t.enabled = isVideoOnRef.current
           console.log(`📹 Video track enabled: ${t.enabled}`)
         })
 
         // Fetch ICE configuration from server
         try {
-          console.log('🧊 Fetching ICE configuration...')
+          console.log('🧶 Fetching ICE configuration...')
           const remoteIceConfig = await getWebRtcIceConfig()
           if (remoteIceConfig?.iceServers?.length) {
             iceConfigRef.current = {
@@ -193,10 +199,18 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         }
         socketRef.current = socket || getSocket()
         
-        console.log('🔧 Setting up socket listeners...')
+        // CRITICAL: Set up socket listeners FIRST, then emit join-meeting.
+        // This prevents the race condition where 'existing-participants'
+        // arrives before the listener is registered.
+        console.log('🔧 Setting up socket listeners BEFORE join...')
         setupSocketListeners(socketRef.current)
         
-        // Re-emit join-meeting so server re-sends existing-participants
+        // Small yield to ensure listeners are registered in the event loop
+        await new Promise(r => setTimeout(r, 50))
+        
+        if (cancelled) return
+        
+        // Now emit join-meeting — the listeners are guaranteed to be ready
         console.log('📤 Emitting join-meeting event...')
         socketRef.current.emit('join-meeting', { 
           meetingId, 
@@ -204,11 +218,11 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           isMobile: isMobileDevice 
         })
         
-        // Send initial media state
+        // Send initial media state using refs
         socketRef.current.emit('media-state', {
           meetingId, 
-          audio: isMicOn, 
-          video: isVideoOn, 
+          audio: isMicOnRef.current, 
+          video: isVideoOnRef.current, 
           isMobile: isMobileDevice,
         })
         
@@ -228,7 +242,13 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
           const socket = getSocket()
           if (!socket?.connected) await connectSocket()
           socketRef.current = socket || getSocket()
+          
+          // Set up listeners BEFORE emitting join-meeting
           setupSocketListeners(socketRef.current)
+          await new Promise(r => setTimeout(r, 50))
+          
+          if (cancelled) return
+          
           socketRef.current.emit('join-meeting', { 
             meetingId, 
             userName: userNameRef.current, 
@@ -351,16 +371,38 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
 
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
-      console.log(`📥 Received ${event.track.kind} track from ${remoteName}`)
-      const [remoteStream] = event.streams
+      console.log(`📥 Received ${event.track.kind} track from ${remoteName}`, {
+        streams: event.streams.length,
+        trackEnabled: event.track.enabled,
+        trackState: event.track.readyState,
+      })
+      
+      // Some browsers don't populate event.streams — create a fallback stream
+      let remoteStream = event.streams?.[0]
+      if (!remoteStream) {
+        console.warn(`⚠️ No stream in ontrack event for ${remoteName}, creating fallback MediaStream`)
+        remoteStream = new MediaStream([event.track])
+      }
       
       setParticipants(prev => {
         const next = new Map(prev)
         const existing = next.get(remoteSocketId) || {}
+        
+        // If we already have a stream, add the new track to it
+        // (audio and video tracks arrive in separate ontrack events)
+        let finalStream = remoteStream
+        if (existing.stream && existing.stream.id === remoteStream.id) {
+          finalStream = existing.stream // Same stream, tracks auto-added
+        } else if (existing.stream && !event.streams?.[0]) {
+          // Fallback stream scenario — add track to existing stream
+          existing.stream.addTrack(event.track)
+          finalStream = existing.stream
+        }
+        
         next.set(remoteSocketId, { 
           ...existing, 
           name: remoteName, 
-          stream: remoteStream,
+          stream: finalStream,
           // Preserve media state
           audioOn: existing.audioOn !== undefined ? existing.audioOn : true,
           videoOn: existing.videoOn !== undefined ? existing.videoOn : true,
@@ -725,6 +767,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       }
       peersRef.current.clear()
       pendingIceRef.current.clear()
+      negotiatingRef.current.clear()
       setParticipants(new Map())
       
       // Re-setup listeners and re-join
@@ -732,22 +775,28 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
         console.log('🔧 Re-setting up socket listeners after reconnect...')
         setupSocketListeners(socketRef.current)
         
-        console.log('📤 Re-emitting join-meeting after reconnect...')
-        socketRef.current.emit('join-meeting', {
-          meetingId: activeMeetingRef.current,
-          userName: userNameRef.current,
-          isMobile: isMobileDevice,
-        })
-        
-        // Re-send media state
-        socketRef.current.emit('media-state', {
-          meetingId: activeMeetingRef.current,
-          audio: isMicOn,
-          video: isVideoOn,
-          isMobile: isMobileDevice,
-        })
-        
-        console.log('✅ Reconnection complete')
+        // Small delay to ensure listeners are registered before emitting
+        setTimeout(() => {
+          if (!socketRef.current?.connected) return
+          
+          console.log('📤 Re-emitting join-meeting after reconnect...')
+          socketRef.current.emit('join-meeting', {
+            meetingId: activeMeetingRef.current,
+            userName: userNameRef.current,
+            isMobile: isMobileDevice,
+          })
+          
+          // Re-send media state using refs to get current values
+          socketRef.current.emit('media-state', {
+            meetingId: activeMeetingRef.current,
+            audio: isMicOnRef.current,
+            video: isVideoOnRef.current,
+            isMobile: isMobileDevice,
+          })
+          
+          setConnected(true)
+          console.log('✅ Reconnection complete')
+        }, 100)
       }
     }
 
@@ -769,7 +818,7 @@ export default function VideoPanel({ meetingId, isMicOn, isVideoOn, isScreenShar
       socket.off('disconnect', handleDisconnect)
       socket.off('connect_error', handleConnectError)
     }
-  }, [setupSocketListeners, isMicOn, isVideoOn])
+  }, [setupSocketListeners])
 
   // ========== Screen share ==========
   const startScreenShare = async () => {
@@ -1027,7 +1076,10 @@ function RemoteVideo({ participant, viewerIsMobile }) {
   const videoRef = useRef(null)
   const [hasStream, setHasStream] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
-  const streamSetRef = useRef(false)
+  const lastStreamIdRef = useRef(null)
+
+  // Derive stream ID for dependency tracking (stream object reference is unstable)
+  const streamId = participant.stream?.id || null
 
   // Effect to set stream when both video element and stream are available
   useEffect(() => {
@@ -1037,49 +1089,72 @@ function RemoteVideo({ participant, viewerIsMobile }) {
     if (!video) return
     
     if (!stream) {
+      video.srcObject = null
       setHasStream(false)
       setIsPlaying(false)
-      streamSetRef.current = false
+      lastStreamIdRef.current = null
       return
     }
 
-    // Only set stream if it hasn't been set yet or if it's a different stream
-    if (streamSetRef.current && video.srcObject === stream) {
-      return
+    // Always re-assign srcObject — it's cheap and guarantees correctness
+    // even when React re-mounts the <video> element
+    const isNewStream = lastStreamIdRef.current !== stream.id
+    if (video.srcObject !== stream) {
+      console.log(`🎥 Setting stream for ${participant.name}`, {
+        streamId: stream.id,
+        isNew: isNewStream,
+        tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState, muted: t.muted }))
+      })
+      video.srcObject = stream
     }
-
-    console.log(`🎥 Setting stream for ${participant.name}`, {
-      streamId: stream.id,
-      tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
-    })
-    
-    video.srcObject = stream
-    streamSetRef.current = true
+    lastStreamIdRef.current = stream.id
     setHasStream(true)
 
     // Attempt to play with retry for autoplay failures
     const attemptPlay = () => {
-      if (!video.paused) return
-      video.play()
-        .then(() => {
-          setIsPlaying(true)
-        })
-        .catch(err => {
-          console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err.message)
-          setIsPlaying(false)
-          // Retry after a short delay (browsers sometimes allow autoplay after a brief wait)
-          setTimeout(() => {
-            if (video.paused && video.srcObject) {
-              video.play().then(() => setIsPlaying(true)).catch(() => {})
-            }
-          }, 1000)
-        })
+      if (!video.paused) {
+        setIsPlaying(true)
+        return
+      }
+      const playPromise = video.play()
+      if (playPromise) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true)
+          })
+          .catch(err => {
+            console.warn(`⚠️ Autoplay blocked for ${participant.name}:`, err.message)
+            setIsPlaying(false)
+          })
+      }
+    }
+
+    // Retry playback multiple times with increasing delays
+    const retryTimers = []
+    const scheduleRetries = () => {
+      ;[500, 1500, 3000].forEach(delay => {
+        const t = setTimeout(() => {
+          if (video.paused && video.srcObject) {
+            console.log(`🔄 Retrying playback for ${participant.name} after ${delay}ms`)
+            video.play().then(() => setIsPlaying(true)).catch(() => {})
+          }
+        }, delay)
+        retryTimers.push(t)
+      })
     }
 
     const handleLoadedMetadata = () => attemptPlay()
     const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
-    const handleError = () => setIsPlaying(false)
+    const handlePause = () => {
+      // Don't treat brief pauses (e.g., track replacement) as stopped
+      setTimeout(() => {
+        if (video.paused) setIsPlaying(false)
+      }, 200)
+    }
+    const handleError = (e) => {
+      console.error(`❌ Video error for ${participant.name}:`, e)
+      setIsPlaying(false)
+    }
 
     // Monitor tracks ending (indicates dead stream)
     const trackHandlers = []
@@ -1091,7 +1166,7 @@ function RemoteVideo({ participant, viewerIsMobile }) {
         if (allEnded) {
           setHasStream(false)
           setIsPlaying(false)
-          streamSetRef.current = false
+          lastStreamIdRef.current = null
         }
       }
       track.addEventListener('ended', onEnded)
@@ -1107,6 +1182,8 @@ function RemoteVideo({ participant, viewerIsMobile }) {
     if (video.readyState >= 2) {
       attemptPlay()
     }
+    // Also schedule retries in case autoplay is initially blocked
+    scheduleRetries()
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
@@ -1114,8 +1191,9 @@ function RemoteVideo({ participant, viewerIsMobile }) {
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('error', handleError)
       trackHandlers.forEach(({ track, handler }) => track.removeEventListener('ended', handler))
+      retryTimers.forEach(t => clearTimeout(t))
     }
-  }, [participant.stream, participant.name])
+  }, [streamId, participant.name])
 
   // XOR: flip when exactly one side is mobile.
   // If both are same device type (both mobile or both desktop), no flip.
@@ -1125,15 +1203,20 @@ function RemoteVideo({ participant, viewerIsMobile }) {
 
   return (
     <div className="relative rounded-xl overflow-hidden bg-gray-800 w-full h-full" style={{ aspectRatio: '16/9', maxHeight: '100%', maxWidth: '100%' }}>
-      {hasStream && (
-        <video 
-          ref={videoRef} 
-          autoPlay 
-          playsInline 
-          className={'absolute inset-0 w-full h-full' + (!showVideo ? ' hidden' : '')} 
-          style={{ objectFit: 'cover', transform: needsFlip ? 'scaleX(-1)' : 'none' }} 
-        />
-      )}
+      {/* ALWAYS render <video> so srcObject can be assigned immediately.
+          Use CSS visibility instead of conditional rendering to avoid losing the ref. */}
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        playsInline 
+        className={'absolute inset-0 w-full h-full'}
+        style={{
+          objectFit: 'cover',
+          transform: needsFlip ? 'scaleX(-1)' : 'none',
+          // Hide via CSS instead of unmounting — keeps srcObject intact
+          display: showVideo ? 'block' : 'none',
+        }} 
+      />
       {(!hasStream || !showVideo) && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
           <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-emerald-600 flex items-center justify-center text-black text-lg sm:text-xl font-bold">
