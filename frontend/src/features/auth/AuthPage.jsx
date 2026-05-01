@@ -64,8 +64,7 @@ export default function AuthPage({ mode }) {
           )}
           <div className="mt-10">
             <img
-              src="https://illustrations.popsy.co/white/student-with-laptop.svg"
-              alt="Study illustration"
+              
               className="w-64 mx-auto opacity-90"
             />
           </div>
